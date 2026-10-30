@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <defs>
-    <radialGradient id="bg" cx=".5" cy=".5" r=".7"><stop offset="0" stop-color="#223f8c"/><stop offset="1" stop-color="#0e1838"/></radialGradient>
-    <radialGradient id="gold" cx=".3" cy=".25" r=".9"><stop offset="0" stop-color="#f7e3a4"/><stop offset=".45" stop-color="#d3a548"/><stop offset="1" stop-color="#8a6418"/></radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4263eb"/><stop offset="1" stop-color="#7950f2"/></linearGradient>
+    <radialGradient id="gold" cx=".35" cy=".3" r=".9"><stop offset="0" stop-color="#ffe066"/><stop offset="1" stop-color="#f08c00"/></radialGradient>
   </defs>
-  <rect width="100" height="100" rx="22" fill="url(#bg)"/>
-  <circle cx="50" cy="50" r="33" fill="url(#gold)" stroke="#6e4f12" stroke-width="1.2"/>
-  <circle cx="50" cy="50" r="26.5" fill="none" stroke="#7a5717" stroke-width="1" opacity=".7"/>
-  <path d="M50 63 C38 55 36 48 38.5 44 C41 40 47 40 50 45 C53 40 59 40 61.5 44 C64 48 62 55 50 63 Z" fill="#1d3577"/>
+  <rect width="100" height="100" rx="24" fill="url(#bg)"/>
+  <circle cx="50" cy="50" r="30" fill="url(#gold)"/>
+  <circle cx="50" cy="50" r="24.5" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1.4"/>
+  <path d="M50 62 C39 55 37 48.5 39.3 44.5 C41.6 40.6 47 40.6 50 45 C53 40.6 58.4 40.6 60.7 44.5 C63 48.5 61 55 50 62 Z" fill="#fff"/>
 </svg>

@@ -4,6 +4,7 @@ import {
 } from './store.js';
 import { parseDonation, isYes, isNo } from './parser.js';
 import * as voice from './voice.js';
+import { quoteFor } from './quotes.js';
 import { putFile, getFile, deleteFile, allFileIds, prepareFile, blobToDataURL, dataURLToBlob } from './files.js';
 
 // ---------- Utilitaires ----------
@@ -15,6 +16,7 @@ const money = (n) => `${nf.format(Math.round((n || 0) * 100) / 100)} ₪`;
 const pct = (n) => `${nf.format(Math.round(n * 10) / 10)} %`;
 const fmtDate = (iso, o = { day: 'numeric', month: 'long', year: 'numeric' }) => parseISO(iso).toLocaleDateString('fr-FR', o);
 const S = () => store.get();
+const hue = (name) => [...String(name || '')].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
 const initial = (name) => (String(name || '?').trim()[0] || '?').toUpperCase();
 const parseAmount = (v) => parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
 const vibrate = (ms = 12) => { try { navigator.vibrate?.(ms); } catch {} };
@@ -131,6 +133,17 @@ function yearPicker() {
   </div>`;
 }
 
+// ---------- Citations du Sefer HaMidot ----------
+const quoteShift = {};
+function quoteCard(topics, compact = false) {
+  const key = topics.join('+');
+  const q = quoteFor(topics, quoteShift[key] || 0);
+  return `<figure class="quote-card ${compact ? 'compact' : ''}" data-act="next-quote" data-key="${key}" title="Citation suivante">
+    <blockquote lang="he" dir="rtl">${esc(q.he)}</blockquote>
+    <figcaption><span class="quote-fr">${esc(q.fr)}</span><span class="quote-ref">Sefer HaMidot · ${esc(q.ref)}</span></figcaption>
+  </figure>`;
+}
+
 // ---------- Vue : Dons ----------
 views.dons = () => `
   <section class="page">
@@ -142,6 +155,7 @@ views.dons = () => `
       <h2 class="title">Mes dons</h2>
       ${yearPicker()}
     </div>
+    ${quoteCard(['tsedaka', 'joie'], true)}
     <label class="search">${ICON.search}<input type="search" placeholder="Rechercher un bénéficiaire, une remarque…" value="${esc(ui.search)}" data-input="search"></label>
     <div id="don-list"></div>
   </section>`;
@@ -193,7 +207,7 @@ function renderDonList() {
     const rec = d.recurring
       ? `<span class="chip rec">${ICON.repeat}${FREQ[d.recurring.freq]} · ${n}×${d.recurring.end ? ` · fin ${fmtDate(d.recurring.end, { day: 'numeric', month: 'short' })}` : ''}</span>` : '';
     html += `<article class="don" data-act="edit-don" data-id="${d.id}" tabindex="0">
-      <span class="avatar ${b?.type === 'person' || d.beneficiaryType === 'person' ? 'person' : ''}">${esc(initial(name))}</span>
+      <span class="avatar" style="--h:${hue(name)}">${esc(initial(name))}</span>
       <span class="don-main">
         <span class="don-name">${esc(name)}${d.attachments?.length ? `<span class="clip" title="Reçu joint">${ICON.clip}</span>` : ''}</span>
         <span class="don-meta">${esc(fmtDate(d.recurring ? sort : d.date, { day: 'numeric', month: 'short' }))} · ${esc(PAYMENTS[d.payment] || '—')}</span>
@@ -557,7 +571,7 @@ views.synthese = () => {
         <div class="org-sub">${b.count} don${b.count > 1 ? 's' : ''} · ${s.total ? pct((b.amount / s.total) * 100) : ''}</div>
       </div>`).join('') : `<p class="muted">Aucun don en ${ui.year}.</p>`}
     </div>
-    <p class="quote" lang="he" dir="rtl">מִצְוָה גְּדוֹלָה לִהְיוֹת בְּשִׂמְחָה תָּמִיד</p>
+    ${quoteCard(['tsedaka', 'joie'])}
   </section>`;
 };
 
@@ -584,7 +598,7 @@ views.tsedaka = () => {
       <button class="link" data-act="tz-undo">Annuler la dernière pièce</button>
       <button class="link" data-act="tz-reset">Remettre à zéro</button>
     </div>
-    <p class="quote" lang="he" dir="rtl">וּצְדָקָה תַּצִּיל מִמָּוֶת</p>
+    ${quoteCard(['tsedaka'])}
   </section>`;
 };
 
@@ -644,7 +658,7 @@ views.donner = () => {
       const ms = methodsOf(b);
       return `<div class="partner">
         <div class="partner-head">
-          <span class="avatar ${b.type === 'person' ? 'person' : ''}">${esc(initial(b.name))}</span>
+          <span class="avatar" style="--h:${hue(b.name)}">${esc(initial(b.name))}</span>
           <div class="partner-id"><div class="partner-name">${esc(b.name)}</div>
             <div class="partner-sub">${b.type === 'person' ? 'Personne' : 'Association'}${given.get(b.id) ? ` · ${money(given.get(b.id))} en ${year}` : ''}</div></div>
           <button class="icon-btn sm" data-act="edit-benef" data-id="${b.id}" aria-label="Modifier">${ICON.edit}</button>
@@ -781,6 +795,7 @@ views.maaser = () => {
       <div class="tile ${s.remaining > 0 ? 'gold-tile' : 'ok-tile'}"><span class="tile-label">${s.remaining > 0 ? 'Reste à distribuer' : 'Accompli'}</span>
         <span class="tile-value">${money(s.remaining > 0 ? s.remaining : s.total - s.due)}</span></div>
     </div>
+    ${quoteCard(['maaser'])}
     <button class="btn gold big full" data-act="new-income">${ICON.plus}<span>Ajouter un revenu</span></button>
     <h3 class="section-title">Revenus ${ui.year}</h3>
     ${incomes.length ? `<div class="card list">${incomes.map((i) => `<button class="income" data-act="edit-income" data-id="${i.id}">
@@ -921,6 +936,12 @@ function exportCSV() {
 // ---------- Actions (délégation d'événements) ----------
 const actions = {
   'close-sheet': () => closeSheet(),
+  'next-quote': (el) => {
+    quoteShift[el.dataset.key] = (quoteShift[el.dataset.key] || 0) + 1;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = quoteCard(el.dataset.key.split('+'), el.classList.contains('compact'));
+    el.replaceWith(tmp.firstElementChild);
+  },
   goto: (el) => go(el.dataset.view),
   settings: () => openSettings(),
   'new-don': () => openDonationForm(),

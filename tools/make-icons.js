@@ -44,19 +44,19 @@ const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 
 function shade(x, y) {
   const dx = x - 0.5, dy = y - 0.5, r = Math.hypot(dx, dy);
-  let c = lerp(hex('#223f8c'), hex('#0e1838'), r / 0.7);
-  const R = 0.33;
+  let c = lerp(hex('#4263eb'), hex('#7950f2'), (x + y) / 2);
+  const R = 0.3;
   if (r <= R) {
-    const t = Math.hypot(x - 0.4, y - 0.36) / 0.45;
-    c = t < 0.5 ? lerp(hex('#f7e3a4'), hex('#d3a548'), t / 0.5) : lerp(hex('#d3a548'), hex('#8a6418'), (t - 0.5) / 0.5);
-    if (r > R - 0.012) c = lerp(c, hex('#6e4f12'), 0.55);
-    if (Math.abs(r - 0.265) < 0.006) c = lerp(c, hex('#7a5717'), 0.6);
-    const hx = (x - 0.5) / 0.115, hy = -(y - 0.515) / 0.115;
-    if ((hx * hx + hy * hy - 1) ** 3 - hx * hx * hy ** 3 <= 0) c = lerp(hex('#14224a'), hex('#2a4fa8'), (y - 0.38) / 0.3);
+    const t = Math.hypot(x - 0.4, y - 0.36) / 0.5;
+    c = lerp(hex('#ffe066'), hex('#f08c00'), t);
+    if (Math.abs(r - 0.245) < 0.007) c = lerp(c, hex('#ffffff'), 0.45);
+    const hx = (x - 0.5) / 0.11, hy = -(y - 0.515) / 0.11;
+    if ((hx * hx + hy * hy - 1) ** 3 - hx * hx * hy ** 3 <= 0) c = hex('#ffffff');
+  } else if (r <= R + 0.03) {
+    c = lerp(c, hex('#1b1f4b'), 0.25 * (1 - (r - R) / 0.03));
   }
   return [...c, 255];
 }
-
 fs.mkdirSync(out, { recursive: true });
 fs.writeFileSync(path.join(out, 'icon-192.png'), png(192, shade));
 fs.writeFileSync(path.join(out, 'icon-512.png'), png(512, shade));

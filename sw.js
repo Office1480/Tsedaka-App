@@ -1,9 +1,10 @@
 // Service worker : l'app fonctionne hors-ligne.
 // Réseau d'abord pour les fichiers de l'app (mises à jour immédiates), cache en secours ;
 // cache d'abord pour les polices Google.
-const CACHE = 'tsedaka-v2';
+const CACHE = 'tsedaka-v3';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/app.js', 'js/store.js', 'js/parser.js', 'js/voice.js', 'js/files.js', 'js/quotes.js',
+  'js/drive.js', 'js/config.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 

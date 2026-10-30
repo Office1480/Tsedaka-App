@@ -5,6 +5,7 @@ import {
 import { parseDonation, isYes, isNo } from './parser.js';
 import * as voice from './voice.js';
 import { quoteFor } from './quotes.js';
+import * as drive from './drive.js';
 import { putFile, getFile, deleteFile, allFileIds, prepareFile, blobToDataURL, dataURLToBlob } from './files.js';
 
 // ---------- Utilitaires ----------
@@ -34,6 +35,7 @@ const ICON = {
   wallet: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12.5h2M3 9h18"/></svg>',
   check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   repeat: '<svg viewBox="0 0 24 24"><path d="M17 3l3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 13v2a3 3 0 0 1-3 3H4"/></svg>',
+  cloud: '<svg viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4.75 4.75 0 0 1-.5 9.5z"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
   search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>',
 };
@@ -115,6 +117,7 @@ function render() {
   if (ui.view !== 'donner') ui.give = false;
   $('#view').innerHTML = views[ui.view]();
   $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === ui.view));
+  updateCloud();
   if (ui.view === 'dons') renderDonList();
 }
 
@@ -852,8 +855,9 @@ function openSettings() {
         <label class="field"><span>Taux du maasser (%)</span><input type="text" inputmode="decimal" name="maaserRate" value="${st.maaserRate}"></label>
       </div>
       <button class="btn gold full" type="submit">${ICON.check}<span>Enregistrer les taux</span></button>
-      <h4 class="section-title">Sauvegarde</h4>
-      <p class="hint">Vos données restent sur ce téléphone. Exportez régulièrement une sauvegarde (reçus inclus).</p>
+      <h4 class="section-title">Sauvegarde Google Drive</h4>
+      <div class="drive-box" data-drive></div>
+      <h4 class="section-title">Fichiers</h4>
       <div class="stack">
         <button type="button" class="btn ghost full" data-export>Exporter une sauvegarde (.json)</button>
         <label class="btn ghost full">Restaurer une sauvegarde<input type="file" accept="application/json,.json" hidden data-import></label>
@@ -874,6 +878,11 @@ function openSettings() {
       await closeSheet();
       toast('Réglages enregistrés');
     });
+    const box = $('[data-drive]', f);
+    const draw = () => { box.innerHTML = driveSection(); };
+    draw();
+    const off = drive.onDriveChange(draw);
+    box.addEventListener('click', (e) => driveAction(e.target.closest('[data-d]')?.dataset.d, box));
     $('[data-export]', f).onclick = exportBackup;
     $('[data-csv]', f).onclick = exportCSV;
     $('[data-import]', f).onchange = (e) => importBackup(e.target.files[0]);
@@ -885,8 +894,84 @@ function openSettings() {
       await closeSheet();
       toast('Données effacées');
     };
+    return off;
   });
 }
+
+// ---------- Google Drive ----------
+function ago(t) {
+  const m = Math.round((Date.now() - t) / 6e4);
+  if (m < 1) return 'à l’instant';
+  if (m < 60) return `il y a ${m} min`;
+  if (m < 1440) return `il y a ${Math.round(m / 60)} h`;
+  return `le ${new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`;
+}
+
+function driveSection() {
+  const s = drive.status();
+  if (!s.configured) {
+    return `<p class="hint">Pour sauvegarder automatiquement vos dons et reçus dans votre Google Drive, collez l’identifiant client Google (voir le guide dans le README).</p>
+      <label class="field"><span>Identifiant client Google</span><input data-cid placeholder="xxxx.apps.googleusercontent.com" autocomplete="off"></label>
+      <button type="button" class="btn ghost full" data-d="cid">Enregistrer l’identifiant</button>`;
+  }
+  if (!s.connected) {
+    return `<p class="hint">Chaque modification sera copiée dans un dossier « Tsédaka » de votre Drive (reçus inclus). L’app n’a accès qu’à ses propres fichiers.</p>
+      <div class="stack"><button type="button" class="btn gold full" data-d="connect">${ICON.cloud}<span>Connecter Google Drive</span></button>
+      <button type="button" class="btn ghost full" data-d="restore">Restaurer depuis Drive</button>
+      <button type="button" class="link" data-d="reset-cid">Changer l’identifiant client</button></div>`;
+  }
+  const state = s.busy ? 'Sauvegarde en cours…'
+    : s.error ? `⚠ ${esc(s.error)}`
+    : s.dirty ? 'Modifications pas encore sauvegardées'
+    : s.lastBackup ? `✓ Sauvegardé ${ago(s.lastBackup)}` : 'Jamais sauvegardé';
+  return `<div class="drive-status ${s.dirty || s.error ? 'warn' : 'ok'}">${ICON.cloud}<span>${state}</span></div>
+    <div class="stack">
+      <button type="button" class="btn gold full" data-d="backup" ${s.busy ? 'disabled' : ''}>Sauvegarder maintenant</button>
+      <button type="button" class="btn ghost full" data-d="restore">Restaurer depuis Drive</button>
+      <button type="button" class="link" data-d="disconnect">Déconnecter Google Drive</button>
+    </div>`;
+}
+
+async function driveAction(act, box) {
+  try {
+    if (act === 'cid') {
+      const v = $('[data-cid]', box).value.trim();
+      if (!/\.apps\.googleusercontent\.com$/.test(v)) return toast('Identifiant invalide (…apps.googleusercontent.com)');
+      drive.setClientId(v);
+    } else if (act === 'reset-cid') {
+      drive.setClientId('');
+    } else if (act === 'connect') {
+      await drive.authorize();
+      toast('Google Drive connecté');
+      await drive.backup({ interactive: true });
+      toast('Première sauvegarde effectuée');
+    } else if (act === 'backup') {
+      await drive.backup({ interactive: true });
+      toast('Sauvegardé sur Google Drive');
+    } else if (act === 'restore') {
+      const data = await drive.fetchLatestBackup();
+      const n = data.state.donations?.length || 0;
+      if (!confirm(`Sauvegarde du ${new Date(data.savedAt).toLocaleString('fr-FR')} (${n} don${n > 1 ? 's' : ''}).\nRemplacer les données de ce téléphone par celle-ci ?`)) return;
+      await drive.applyBackup(data);
+      toast('Données restaurées depuis Google Drive');
+    } else if (act === 'disconnect') {
+      if (confirm('Déconnecter Google Drive ? Les sauvegardes déjà faites restent dans votre Drive.')) drive.disconnect();
+    }
+  } catch (e) {
+    toast(e.message || 'Erreur Google Drive');
+  }
+}
+
+function updateCloud() {
+  const btn = $('#cloud-btn');
+  if (!btn) return;
+  const s = drive.status();
+  const hasData = S().donations.length > 0;
+  btn.hidden = !s.connected && !hasData;
+  btn.className = 'icon-btn cloud ' + (!s.connected ? 'off' : s.busy ? 'busy' : s.dirty || s.error ? 'warn' : 'ok');
+  btn.title = !s.connected ? 'Sauvegarde Google Drive non activée' : s.busy ? 'Sauvegarde…' : s.dirty ? 'Sauvegarde en attente — toucher pour sauvegarder' : 'Sauvegardé sur Google Drive';
+}
+drive.onDriveChange(updateCloud);
 
 function download(name, blob) {
   const a = document.createElement('a');
@@ -944,6 +1029,14 @@ const actions = {
   },
   goto: (el) => go(el.dataset.view),
   settings: () => openSettings(),
+  cloud: async () => {
+    const s = drive.status();
+    if (!s.connected) return openSettings();
+    try {
+      await drive.backup({ interactive: true });
+      toast('Sauvegardé sur Google Drive');
+    } catch (e) { toast(e.message); }
+  },
   'new-don': () => openDonationForm(),
   voice: () => openVoice(),
   'edit-don': (el) => openDonationForm({ id: el.dataset.id }),

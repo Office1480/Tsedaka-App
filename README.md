@@ -14,7 +14,22 @@ Application Android (PWA installable) pour gérer ses dons en toute simplicité,
 - **Tsédaka quotidienne** : pièces de 1, 2, 5, 10 ₪ et billets de 20, 50, 100 ₪ qui s’ajoutent à une boîte de tsédaka. Ensuite « Verser cette tsédaka » (formulaire prérempli) ou « Donner cet argent » (choix du bénéficiaire, ouverture de son lien, puis validation). Le don est enregistré et le compteur remis à zéro.
 - **Sauvegarde** : export / restauration JSON (reçus inclus) et export CSV des dons de l’année, dans les Réglages.
 
-Les données sont stockées **uniquement sur le téléphone** (localStorage + IndexedDB). Pensez à exporter une sauvegarde de temps en temps.
+Les données vivent sur le téléphone (localStorage + IndexedDB) et sont **sauvegardées automatiquement sur Google Drive** : après chaque modification, une copie complète (dons, revenus, bénéficiaires, reçus) part dans un dossier « Tsédaka » de votre Drive. Sur un nouveau téléphone : Réglages → *Restaurer depuis Drive*. L’icône nuage en haut indique l’état (vert = sauvegardé, orange = en attente : la toucher sauvegarde).
+
+L’app utilise la permission `drive.file` : elle ne voit **que les fichiers qu’elle a créés**, pas le reste de votre Drive.
+
+## Activer la sauvegarde Google Drive (une seule fois, ~5 min)
+
+1. Aller sur https://console.cloud.google.com/ et créer un projet (ex. « Tsedaka »).
+2. *API et services → Bibliothèque* : activer **Google Drive API**.
+3. *API et services → Écran de consentement OAuth* : type **Externe**, nom « Tsédaka », votre e-mail ; dans *Utilisateurs test*, ajouter votre adresse Gmail.
+4. *API et services → Identifiants → Créer des identifiants → ID client OAuth* : type **Application Web**. Dans *Origines JavaScript autorisées*, ajouter :
+   - `http://localhost:5180` (tests sur le PC)
+   - `https://<votre-compte>.github.io` (l’app en ligne)
+5. Copier l’**ID client** (`…apps.googleusercontent.com`) et le coller dans l’app : Réglages → Sauvegarde Google Drive. (Ou le mettre dans `js/config.js` pour tous les appareils.)
+6. Toucher **Connecter Google Drive** et accepter.
+
+Google exige HTTPS : sur le téléphone, la sauvegarde Drive (comme la dictée) fonctionne avec l’adresse GitHub Pages, pas avec l’adresse locale `http://192.168…`.
 
 ## Lancer en local
 

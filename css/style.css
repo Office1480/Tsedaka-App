@@ -442,3 +442,17 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Sauvegarde Google Drive ---------- */
+.top-actions { display: flex; gap: 8px; }
+.icon-btn.cloud.ok { color: var(--ok); background: var(--ok-soft); }
+.icon-btn.cloud.warn { color: var(--wait); background: var(--wait-soft); }
+.icon-btn.cloud.off { color: var(--muted); position: relative; }
+.icon-btn.cloud.off::after { content: ''; position: absolute; width: 22px; height: 2px; background: currentColor; transform: rotate(-40deg); border-radius: 2px; }
+.icon-btn.cloud.busy svg { animation: blink 1s ease-in-out infinite; color: var(--brand); }
+@keyframes blink { 50% { opacity: .35; } }
+.drive-box { display: grid; gap: 12px; }
+.drive-status { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; font-weight: 700; font-size: 14px; }
+.drive-status.ok { color: var(--ok); background: var(--ok-soft); }
+.drive-status.warn { color: var(--wait); background: var(--wait-soft); }
+.icon-btn[hidden] { display: none; }

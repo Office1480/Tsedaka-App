@@ -54,9 +54,14 @@ function load() {
 
 let state = load();
 const listeners = new Set();
+const savers = new Set();
+
+// Appelé à chaque écriture (y compris les mises à jour « silencieuses ») : sert à la sauvegarde Drive.
+export const onSave = (fn) => savers.add(fn);
 
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { console.error(e); }
+  savers.forEach((f) => f());
 }
 
 export const store = {

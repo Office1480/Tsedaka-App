@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14224a">
+  <meta name="description" content="Mes dons, reçus Sif 46, maasser et tsédaka quotidienne.">
+  <title>Tsédaka</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Frank+Ruhl+Libre:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="top-inner">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+          <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f4dc97"/><stop offset=".55" stop-color="#c99a3b"/><stop offset="1" stop-color="#8d6620"/></linearGradient></defs>
+          <circle cx="24" cy="24" r="21" fill="url(#g)"/>
+          <circle cx="24" cy="24" r="17" fill="none" stroke="#7a5717" stroke-width="1" opacity=".55"/>
+          <text x="24" y="31" text-anchor="middle" font-family="Frank Ruhl Libre, serif" font-size="20" font-weight="700" fill="#14224a">צ</text>
+        </svg>
+        <div>
+          <h1>Tsédaka</h1>
+          <p class="brand-sub">Mes dons · Sif 46 · Maasser</p>
+        </div>
+      </div>
+      <button class="icon-btn light" data-act="settings" aria-label="Réglages">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+    <div class="na-nach" lang="he" dir="rtl" aria-hidden="true">נ נח נחמ נחמן מאומן</div>
+    <svg class="ornament" viewBox="0 0 320 16" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 8 H130 M190 8 H320" stroke="currentColor" stroke-width=".8"/>
+      <path d="M160 2 L166 8 L160 14 L154 8 Z" fill="currentColor"/>
+      <circle cx="142" cy="8" r="2" fill="currentColor"/><circle cx="178" cy="8" r="2" fill="currentColor"/>
+    </svg>
+  </header>
+
+  <main id="view"></main>
+
+  <nav class="tabbar" aria-label="Navigation">
+    <button class="tab" data-view="dons">
+      <svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg><span>Dons</span></button>
+    <button class="tab" data-view="synthese">
+      <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Synthèse</span></button>
+    <button class="tab tab-center" data-view="tsedaka">
+      <span class="tab-coin" lang="he">צ</span><span>Tsédaka</span></button>
+    <button class="tab" data-view="maaser">
+      <svg viewBox="0 0 24 24"><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/><path d="M19 5L5 19"/></svg><span>Maasser</span></button>
+    <button class="tab" data-view="donner">
+      <svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg><span>Donner</span></button>
+  </nav>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

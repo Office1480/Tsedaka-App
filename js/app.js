@@ -1,6 +1,7 @@
 import {
   store, PAYMENTS, SIF, FREQ, uid, todayISO, parseISO, normName, occurrences, stats, yearsAvailable,
   getBeneficiary, findBeneficiary, ensureBeneficiary, usageCount, tzAdd, tzUndo, tzReset,
+  openPledges, openPledgeTotal, pledgeGroups,
 } from './store.js';
 import { parseDonation, isYes, isNo } from './parser.js';
 import * as voice from './voice.js';
@@ -19,7 +20,11 @@ const fmtDate = (iso, o = { day: 'numeric', month: 'long', year: 'numeric' }) =>
 const S = () => store.get();
 const hue = (name) => [...String(name || '')].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
 const initial = (name) => (String(name || '?').trim()[0] || '?').toUpperCase();
-const parseAmount = (v) => parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+// Accepte aussi les additions : « 100+200+300 ».
+const parseAmount = (v) => {
+  const parts = String(v).replace(/[\s₪]/g, '').replace(/,/g, '.').split('+').filter(Boolean).map(Number);
+  return parts.length && parts.every((n) => !isNaN(n)) ? Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100 : NaN;
+};
 const vibrate = (ms = 12) => { try { navigator.vibrate?.(ms); } catch {} };
 
 const ICON = {
@@ -41,7 +46,7 @@ const ICON = {
 };
 
 // ---------- État de l'interface ----------
-const ui = { view: 'dons', year: new Date().getFullYear(), search: '', give: false };
+const ui = { view: 'dons', year: new Date().getFullYear(), search: '', give: false, donTab: 'done' };
 try { ui.view = localStorage.getItem('tsedaka.view') || 'dons'; } catch {}
 if (ui.view === 'donner') ui.view = 'dons';
 
@@ -148,20 +153,231 @@ function quoteCard(topics, compact = false) {
 }
 
 // ---------- Vue : Dons ----------
-views.dons = () => `
+views.dons = () => {
+  const n = openPledges().length;
+  const todo = ui.donTab === 'todo';
+  return `
   <section class="page">
     <div class="action-row">
       <button class="btn gold big" data-act="new-don">${ICON.plus}<span>Nouveau don</span></button>
       <button class="btn blue big" data-act="voice">${ICON.mic}<span>Dicter</span></button>
     </div>
+    ${driveNudge()}
+    <div class="tabs2" role="tablist">
+      <button class="tab2 ${todo ? '' : 'on'}" data-act="don-tab" data-t="done" role="tab">Dons faits</button>
+      <button class="tab2 ${todo ? 'on' : ''}" data-act="don-tab" data-t="todo" role="tab">À donner${n ? `<b>${money(openPledgeTotal())}</b>` : ''}</button>
+    </div>
+    ${todo ? `
+    <div class="list-head">
+      <h2 class="title">À donner</h2>
+      <button class="btn ghost sm" data-act="add-pledge">${ICON.plus}<span>Promesse</span></button>
+    </div>
+    <div id="pledge-list">${pledgesHtml()}</div>` : `
     <div class="list-head">
       <h2 class="title">Mes dons</h2>
       ${yearPicker()}
     </div>
     ${quoteCard(['tsedaka', 'joie'], true)}
     <label class="search">${ICON.search}<input type="search" placeholder="Rechercher un bénéficiaire, une remarque…" value="${esc(ui.search)}" data-input="search"></label>
-    <div id="don-list"></div>
+    <div id="don-list"></div>`}
   </section>`;
+};
+
+// ---------- Promesses : dons à faire ----------
+const MOTIFS = ['Pauvre', 'Montée à la Torah', 'Hazkara', 'Refoua chelema', 'Chabbat', 'Fête', 'Mariage', 'Brit mila', 'Bar mitsva', 'Hatsla’ha', 'Kapara'];
+
+function pledgesHtml() {
+  const groups = pledgeGroups();
+  const today = todayISO();
+  if (!groups.length) {
+    return `<div class="empty"><div class="empty-he">נדר</div><p>Aucune promesse en cours.</p>
+      <p class="muted">Notez ici ce que vous avez promis de donner : l’app regroupe tout par bénéficiaire et vous laisse tout régler en un seul don.</p></div>`;
+  }
+  return groups.map((g) => {
+    const late = g.items.filter((p) => p.date < today).length;
+    return `<div class="pledge-card">
+      <div class="partner-head">
+        <span class="avatar" style="--h:${hue(g.name)}">${esc(initial(g.name))}</span>
+        <div class="partner-id"><div class="partner-name">${esc(g.name)}</div>
+          <div class="partner-sub">${g.items.length} promesse${g.items.length > 1 ? 's' : ''}${late ? ` · <span class="late-txt">${late} échue${late > 1 ? 's' : ''}</span>` : ` · prochaine le ${esc(fmtDate(g.items[0].date, { day: 'numeric', month: 'short' }))}`}</div></div>
+        <div class="pl-total">${money(g.total)}</div>
+      </div>
+      <div class="pl-lines">${g.items.map((p) => `<button class="pl-line ${p.date < today ? 'late' : ''}" data-act="edit-pledge" data-id="${p.id}">
+          <span class="pl-date">${esc(fmtDate(p.date, { day: 'numeric', month: 'short' }))}</span>
+          <span class="pl-motif">${esc(p.motif || '—')}</span>
+          <span class="pl-amt">${money(p.amount)}</span></button>`).join('')}</div>
+      <div class="form-actions">
+        <button class="btn ghost sm" data-act="add-pledge" data-id="${g.id || ''}" data-name="${esc(g.name)}" data-type="${g.type}">${ICON.plus}<span>Ajouter</span></button>
+        <button class="btn gold sm grow" data-act="settle" data-key="${esc(g.key)}">${ICON.check}<span>Régler…</span></button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function pledgeRow(p = {}, removable = true) {
+  return `<div class="pl-row" data-row>
+    <input type="date" name="pdate" value="${p.date || todayISO()}" aria-label="Date prévue">
+    <input type="text" inputmode="decimal" name="pamount" value="${p.amount ?? ''}" placeholder="Montant ₪" class="pl-amount" aria-label="Montant">
+    <input type="text" name="pmotif" value="${esc(p.motif || '')}" placeholder="Motif : pauvre, montée…" list="motifs" aria-label="Motif">
+    ${removable ? `<button type="button" class="icon-btn sm" data-rmrow aria-label="Retirer la ligne">${ICON.trash}</button>` : ''}
+  </div>`;
+}
+
+// Sélecteur de bénéficiaire partagé (type + liste + création).
+function benefPicker(init) {
+  const b = init.beneficiaryId ? getBeneficiary(init.beneficiaryId) : (init.beneficiaryName ? findBeneficiary(init.beneficiaryName) : null);
+  const type = b?.type || init.beneficiaryType || 'association';
+  const selected = b ? b.id : (init.beneficiaryName ? '__new' : '');
+  return `<div class="field"><span>Bénéficiaire</span>${seg('btype', { association: 'Association', person: 'Personne' }, type)}</div>
+    <label class="field"><select name="benef">${beneficiaryOptions(type, selected)}</select></label>
+    <label class="field new-benef ${selected === '__new' ? '' : 'hidden'}"><span>Nom du nouveau bénéficiaire</span>
+      <input type="text" name="newName" value="${esc(selected === '__new' ? init.beneficiaryName : '')}" placeholder="Ex. Kupat Ha’Ir"></label>`;
+}
+function bindBenefPicker(f) {
+  f.addEventListener('change', (e) => {
+    if (e.target.name === 'btype') { f.elements.benef.innerHTML = beneficiaryOptions(e.target.value, ''); $('.new-benef', f).classList.add('hidden'); }
+    if (e.target.name === 'benef') {
+      $('.new-benef', f).classList.toggle('hidden', e.target.value !== '__new');
+      if (e.target.value === '__new') f.elements.newName.focus();
+    }
+  });
+}
+function readBenef(f) {
+  const v = f.elements.benef.value;
+  if (v === '__new') {
+    const n = f.elements.newName.value.trim();
+    if (!n) { f.elements.newName.focus(); toast('Indiquez le nom du bénéficiaire'); return null; }
+    return ensureBeneficiary(n, f.elements.btype.value);
+  }
+  const b = v && getBeneficiary(v);
+  if (!b) { f.elements.benef.focus(); toast('Choisissez un bénéficiaire'); }
+  return b || null;
+}
+
+function openPledgeForm(init = {}, { pledge = null } = {}) {
+  const base = pledge || init;
+  openSheet(`<form class="form" id="pl-form" novalidate>
+      <h3 class="sheet-title">${pledge ? 'Modifier la promesse' : 'Promesse de don'}</h3>
+      <p class="hint">${pledge ? 'Don promis, pas encore versé.' : 'Ce que vous avez promis de donner. Ajoutez autant de lignes que nécessaire : elles seront regroupées sous ce bénéficiaire.'}</p>
+      ${benefPicker(base)}
+      <div class="field"><span>${pledge ? 'Date prévue · montant · motif' : 'Promesses (date prévue · montant · motif)'}</span>
+        <div class="pl-rows" data-rows>${pledge ? pledgeRow(pledge, false) : pledgeRow({ date: init.date, amount: init.amount, motif: init.remark }, false)}</div>
+        ${pledge ? '' : `<button type="button" class="btn ghost sm" data-addrow>${ICON.plus}<span>Ajouter une ligne</span></button>`}
+      </div>
+      <datalist id="motifs">${MOTIFS.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
+      <div class="maaser-preview">Total promis&nbsp;: <b data-total>${money(parseAmount(base.amount) || 0)}</b></div>
+      <div class="form-actions">
+        ${pledge ? `<button type="button" class="btn danger-ghost" data-del>${ICON.trash}<span>Supprimer</span></button>` : ''}
+        <button type="submit" class="btn gold grow">${ICON.check}<span>Enregistrer</span></button>
+      </div>
+      ${pledge ? `<button type="button" class="btn blue full" data-pay>${ICON.wallet}<span>Régler cette promesse</span></button>` : ''}
+    </form>`, (root) => {
+    const f = $('#pl-form', root);
+    const rows = $('[data-rows]', f);
+    bindBenefPicker(f);
+    const sum = () => { $('[data-total]', f).textContent = money($$('[name=pamount]', rows).reduce((s, i) => s + (parseAmount(i.value) || 0), 0)); };
+    f.addEventListener('input', sum);
+    f.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-addrow]')) {
+        const last = $$('[data-row]', rows).at(-1);
+        rows.insertAdjacentHTML('beforeend', pledgeRow({ date: last?.querySelector('[name=pdate]').value }));
+        $$('[name=pamount]', rows).at(-1).focus();
+      }
+      const rm = e.target.closest('[data-rmrow]');
+      if (rm) { rm.closest('[data-row]').remove(); sum(); }
+      if (e.target.closest('[data-del]') && confirm('Supprimer cette promesse ?')) {
+        store.update((s) => { s.pledges = s.pledges.filter((p) => p.id !== pledge.id); });
+        await closeSheet();
+        toast('Promesse supprimée');
+      }
+      if (e.target.closest('[data-pay]')) openSettle(pledge.beneficiaryId || normName(pledge.beneficiaryName), [pledge.id]);
+    });
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const lines = [];
+      for (const r of $$('[data-row]', rows)) {
+        const amount = parseAmount(r.querySelector('[name=pamount]').value);
+        const motif = r.querySelector('[name=pmotif]').value.trim();
+        if (!amount && !motif) continue;
+        if (!(amount > 0)) { r.querySelector('[name=pamount]').focus(); return toast('Indiquez le montant de chaque ligne'); }
+        lines.push({ date: r.querySelector('[name=pdate]').value || todayISO(), amount, motif });
+      }
+      if (!lines.length) return toast('Ajoutez au moins une promesse');
+      const ben = readBenef(f);
+      if (!ben) return;
+      const who = { beneficiaryId: ben.id, beneficiaryName: ben.name, beneficiaryType: ben.type };
+      store.update((s) => {
+        if (pledge) {
+          const i = s.pledges.findIndex((p) => p.id === pledge.id);
+          s.pledges[i] = { ...pledge, ...who, ...lines[0] };
+        } else {
+          for (const l of lines) s.pledges.push({ id: uid(), ...who, ...l, paidDonationId: null, createdAt: Date.now() });
+        }
+      }, { silent: true });
+      ui.donTab = 'todo';
+      await closeSheet();
+      go('dons');
+      toast(pledge ? 'Promesse modifiée' : `${lines.length > 1 ? lines.length + ' promesses enregistrées' : 'Promesse enregistrée'} pour ${ben.name}`);
+    });
+  });
+}
+
+// Règle une ou plusieurs promesses d'un bénéficiaire en un seul don.
+function openSettle(key, preselect = null) {
+  const g = pledgeGroups().find((x) => x.key === key);
+  if (!g) return toast('Promesse introuvable');
+  const b = g.id && getBeneficiary(g.id);
+  openSheet(`<form class="form" id="settle-form" novalidate>
+      <h3 class="sheet-title">Régler · ${esc(g.name)}</h3>
+      <p class="hint">Cochez ce que vous versez maintenant : un seul don sera enregistré, avec le détail en remarque.</p>
+      <div class="settle-list">${g.items.map((p) => `<label class="settle-line">
+          <input type="checkbox" name="pid" value="${p.id}" data-amount="${p.amount}" ${!preselect || preselect.includes(p.id) ? 'checked' : ''}>
+          <span class="check-ui">${ICON.check}</span>
+          <span class="pl-date">${esc(fmtDate(p.date, { day: 'numeric', month: 'short' }))}</span>
+          <span class="pl-motif">${esc(p.motif || '—')}</span>
+          <span class="pl-amt">${money(p.amount)}</span></label>`).join('')}</div>
+      <div class="grid2">
+        <label class="field"><span>Date du versement</span><input type="date" name="date" value="${todayISO()}"></label>
+        <label class="field"><span>Paiement</span><select name="payment">${Object.entries(PAYMENTS).map(([k, v]) => `<option value="${k}" ${k === 'transfer' ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      </div>
+      <div class="field"><span>Reçu Sif 46</span>${seg('sif46', SIF, 'none')}</div>
+      ${b && methodsOf(b).length ? `<div class="methods">${methodsOf(b).map(([k, ic, label]) => `<button type="button" class="method" data-m="${k}">${ic}<span>${label}</span></button>`).join('')}</div>` : ''}
+      ${maaserExclFields(null)}
+      <button type="submit" class="btn gold big full">${ICON.check}<span data-label></span></button>
+    </form>`, (root) => {
+    const f = $('#settle-form', root);
+    bindExcl(f);
+    const upd = () => {
+      const t = $$('[name=pid]:checked', f).reduce((s, i) => s + +i.dataset.amount, 0);
+      $('[data-label]', f).textContent = `Enregistrer le don de ${money(t)}`;
+    };
+    upd();
+    f.addEventListener('change', upd);
+    f.addEventListener('click', (e) => { const m = e.target.closest('[data-m]'); if (m) runMethod(b, m.dataset.m, { quiet: true }); });
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const ids = $$('[name=pid]:checked', f).map((i) => i.value);
+      const chosen = g.items.filter((p) => ids.includes(p.id));
+      if (!chosen.length) return toast('Cochez au moins une promesse');
+      const amount = chosen.reduce((s, p) => s + p.amount, 0);
+      const date = f.elements.date.value || todayISO();
+      const detail = chosen.map((p) => `${fmtDate(p.date, { day: 'numeric', month: 'short' })} : ${money(p.amount)}${p.motif ? ' ' + p.motif : ''}`).join(' · ');
+      const don = {
+        id: uid(), date, amount, beneficiaryId: g.id, beneficiaryName: g.name, beneficiaryType: g.type,
+        sif46: f.elements.sif46.value, payment: f.elements.payment.value, recurring: null,
+        remark: chosen.length > 1 ? `Promesses — ${detail}` : (chosen[0].motif || `Promesse du ${fmtDate(chosen[0].date)}`),
+        maaserExcl: readExcl(f, amount),
+        attachments: [], source: 'pledge', pledgeIds: ids, createdAt: Date.now(),
+      };
+      store.update((s) => {
+        s.donations.push(don);
+        for (const p of s.pledges) if (ids.includes(p.id)) { p.paidDonationId = don.id; p.paidAt = date; }
+      });
+      await closeSheet();
+      toast(`Don de ${money(amount)} enregistré · ${chosen.length} promesse${chosen.length > 1 ? 's' : ''} réglée${chosen.length > 1 ? 's' : ''}`);
+    });
+  });
+}
 
 function donRows(year) {
   const ys = String(year);
@@ -215,6 +431,7 @@ function renderDonList() {
         <span class="don-name">${esc(name)}${d.attachments?.length ? `<span class="clip" title="Reçu joint">${ICON.clip}</span>` : ''}</span>
         <span class="don-meta">${esc(fmtDate(d.recurring ? sort : d.date, { day: 'numeric', month: 'short' }))} · ${esc(PAYMENTS[d.payment] || '—')}</span>
         ${rec}
+        ${d.maaserExcl?.amount ? `<span class="chip excl" title="${esc(d.maaserExcl.reason)}">Hors maasser −${money(d.maaserExcl.amount)}${d.maaserExcl.reason ? ' · ' + esc(d.maaserExcl.reason) : ''}</span>` : ''}
         ${d.remark ? `<span class="don-remark">${esc(d.remark)}</span>` : ''}
       </span>
       <span class="don-side">
@@ -239,6 +456,27 @@ function seg(name, options, value) {
     `<label class="seg-opt"><input type="radio" name="${name}" value="${k}" ${k === value ? 'checked' : ''}><span>${esc(label)}</span></label>`).join('')}</div>`;
 }
 
+// Case « Exclure du maasser » : montant + raison.
+function maaserExclFields(excl) {
+  return `<label class="toggle"><input type="checkbox" name="exclOn" ${excl?.amount ? 'checked' : ''}><span class="toggle-ui"></span><span>Exclure une partie du maasser</span></label>
+    <div class="recurring-box excl-box ${excl?.amount ? '' : 'hidden'}">
+      <div class="grid2">
+        <label class="field"><span>Montant exclu (₪)</span><input type="text" inputmode="decimal" name="exclAmount" value="${excl?.amount ?? ''}" placeholder="0"></label>
+        <label class="field"><span>Raison</span><input type="text" name="exclReason" value="${esc(excl?.reason || '')}" placeholder="Argent avancé pour…"></label>
+      </div>
+      <p class="hint">Cette part reste comptée dans le total et le Sif 46, mais pas dans votre maasser.</p>
+    </div>`;
+}
+function bindExcl(f) {
+  f.addEventListener('change', (e) => { if (e.target.name === 'exclOn') $('.excl-box', f).classList.toggle('hidden', !e.target.checked); });
+}
+function readExcl(f, amount) {
+  if (!f.elements.exclOn.checked) return null;
+  const a = parseAmount(f.elements.exclAmount.value);
+  if (!(a > 0)) return null;
+  return { amount: Math.min(a, amount), reason: f.elements.exclReason.value.trim() };
+}
+
 function openDonationForm(init = {}, { onSaved, title } = {}) {
   const existing = init.id ? S().donations.find((d) => d.id === init.id) : null;
   const d = {
@@ -256,9 +494,12 @@ function openDonationForm(init = {}, { onSaved, title } = {}) {
   openSheet(`
     <form class="form" id="don-form" novalidate>
       <h3 class="sheet-title">${esc(title || (existing ? 'Modifier le don' : 'Nouveau don'))}</h3>
+      ${!existing && !init.source ? `<div class="seg when-seg">
+        <label class="seg-opt"><input type="radio" name="when" value="now" checked><span>Déjà donné</span></label>
+        <label class="seg-opt"><input type="radio" name="when" value="later"><span>À donner plus tard</span></label></div>` : ''}
       <div class="grid2">
         <label class="field"><span>Date</span><input type="date" name="date" value="${d.date}" required></label>
-        <label class="field"><span>Montant (₪)</span><input type="text" inputmode="decimal" name="amount" value="${d.amount === '' ? '' : d.amount}" placeholder="0" required class="amount-input"></label>
+        <label class="field"><span>Montant (₪)</span><input type="text" inputmode="decimal" name="amount" value="${d.amount === '' ? '' : d.amount}" placeholder="100+200…" required class="amount-input"><small class="sum-hint" data-sum></small></label>
       </div>
       <div class="field"><span>Bénéficiaire</span>${seg('btype', { association: 'Association', person: 'Personne' }, type)}</div>
       <label class="field"><select name="benef">${beneficiaryOptions(type, selected)}</select></label>
@@ -273,7 +514,8 @@ function openDonationForm(init = {}, { onSaved, title } = {}) {
         <label class="field"><span>Date de fin (facultatif)</span><input type="date" name="end" value="${d.recurring?.end || ''}"></label>
         <p class="hint">La date ci-dessus est celle du premier versement. Chaque échéance passée est comptée automatiquement.</p>
       </div>
-      <label class="field"><span>Remarque</span><textarea name="remark" rows="2" placeholder="Nom de la personne, contexte…">${esc(d.remark)}</textarea></label>
+      ${maaserExclFields(d.maaserExcl)}
+      <label class="field"><span>Remarque</span><textarea name="remark" rows="2" placeholder="Nom de la personne, détail : 100 pauvre + 200 montée…">${esc(d.remark)}</textarea></label>
       <div class="field"><span>Reçu / justificatif</span>
         <div class="att-actions">
           <label class="btn ghost sm">${ICON.file}<span>Charger un fichier</span><input type="file" accept="image/*,application/pdf" multiple hidden data-att="file"></label>
@@ -290,6 +532,7 @@ function openDonationForm(init = {}, { onSaved, title } = {}) {
     const sel = f.elements.benef;
     const newBox = $('.new-benef', f);
     const urls = [];
+    bindExcl(f);
 
     const drawAtts = async () => {
       const box = $('.att-list', f);
@@ -310,6 +553,16 @@ function openDonationForm(init = {}, { onSaved, title } = {}) {
 
     f.addEventListener('change', async (e) => {
       const el = e.target;
+      if (el.name === 'when' && el.value === 'later') {
+        const v = sel.value;
+        const ben = v && v !== '__new' ? getBeneficiary(v) : null;
+        return openPledgeForm({
+          date: f.elements.date.value > todayISO() ? f.elements.date.value : todayISO(),
+          amount: f.elements.amount.value, remark: f.elements.remark.value.trim(),
+          beneficiaryId: ben?.id, beneficiaryName: ben ? ben.name : (v === '__new' ? f.elements.newName.value.trim() : ''),
+          beneficiaryType: f.elements.btype.value,
+        });
+      }
       if (el.name === 'btype') {
         sel.innerHTML = beneficiaryOptions(el.value, '');
         newBox.classList.add('hidden');
@@ -344,7 +597,11 @@ function openDonationForm(init = {}, { onSaved, title } = {}) {
         saved = true;
         for (const a of existing.attachments || []) deleteFile(a.id);
         for (const id of added) deleteFile(id);
-        store.update((s) => { s.donations = s.donations.filter((x) => x.id !== existing.id); });
+        store.update((s) => {
+          s.donations = s.donations.filter((x) => x.id !== existing.id);
+          // Les promesses réglées par ce don redeviennent « à donner ».
+          for (const p of s.pledges) if (p.paidDonationId === existing.id) { p.paidDonationId = null; p.paidAt = null; }
+        });
         await closeSheet();
         toast('Don supprimé');
       }
@@ -375,6 +632,7 @@ function openDonationForm(init = {}, { onSaved, title } = {}) {
         payment: f.elements.payment.value,
         recurring: rec,
         remark: f.elements.remark.value.trim(),
+        maaserExcl: readExcl(f, amount),
         attachments: atts,
         source: existing?.source || init.source || 'manual',
         createdAt: existing?.createdAt || Date.now(),
@@ -458,14 +716,14 @@ function openVoice() {
       const b = parsed.beneficiaryId ? getBeneficiary(parsed.beneficiaryId) : null;
       const row = (label, value, warn) => `<div class="kv ${warn ? 'warn' : ''}"><span>${label}</span><strong>${value}</strong></div>`;
       result.innerHTML = `<div class="card result">
-        <div class="result-title">Est-ce bien ça&nbsp;?</div>
-        ${row('Date', esc(fmtDate(parsed.date)))}
+        <div class="result-title">${parsed.promise ? 'Promesse de don — ' : ''}Est-ce bien ça&nbsp;?</div>
+        ${row(parsed.promise ? 'Date prévue' : 'Date', esc(fmtDate(parsed.date)))}
         ${row('Montant', parsed.amount ? money(parsed.amount) : 'non compris', !parsed.amount)}
         ${row('Bénéficiaire', parsed.beneficiaryName ? `${esc(parsed.beneficiaryName)} <em>${parsed.beneficiaryType === 'person' ? 'personne' : 'association'}${b ? '' : ' · nouveau'}</em>` : 'non compris', !parsed.beneficiaryName)}
-        ${row('Sif 46', SIF[parsed.sif46])}
-        ${row('Paiement', esc(PAYMENTS[parsed.payment || 'cash']))}
-        ${parsed.recurring ? row('Récurrence', FREQ[parsed.recurring.freq]) : ''}
-        ${parsed.remark ? row('Remarque', esc(parsed.remark)) : ''}
+        ${parsed.promise ? '' : row('Sif 46', SIF[parsed.sif46])}
+        ${parsed.promise ? '' : row('Paiement', esc(PAYMENTS[parsed.payment || 'cash']))}
+        ${parsed.recurring && !parsed.promise ? row('Récurrence', FREQ[parsed.recurring.freq]) : ''}
+        ${parsed.remark ? row(parsed.promise ? 'Motif' : 'Remarque', esc(parsed.remark)) : ''}
         <div class="form-actions">
           <button class="btn ghost" data-fix>Corriger</button>
           <button class="btn gold grow" data-ok ${parsed.missing.length ? 'disabled' : ''}>${ICON.check}<span>Valider</span></button>
@@ -477,7 +735,9 @@ function openVoice() {
         voice.speak('Il me manque une information. Vous pouvez corriger.');
         return;
       }
-      const phrase = `${nf.format(parsed.amount)} shekels, le ${fmtDate(parsed.date, { day: 'numeric', month: 'long' })}, pour ${parsed.beneficiaryName}, ${parsed.sif46 === 'none' ? 'sans Sif 46' : 'Sif 46 ' + SIF[parsed.sif46].toLowerCase()}. C’est bien ça ?`;
+      const phrase = parsed.promise
+        ? `Promesse de ${nf.format(parsed.amount)} shekels pour ${parsed.beneficiaryName}, prévue le ${fmtDate(parsed.date, { day: 'numeric', month: 'long' })}. C’est bien ça ?`
+        : `${nf.format(parsed.amount)} shekels, le ${fmtDate(parsed.date, { day: 'numeric', month: 'long' })}, pour ${parsed.beneficiaryName}, ${parsed.sif46 === 'none' ? 'sans Sif 46' : 'Sif 46 ' + SIF[parsed.sif46].toLowerCase()}. C’est bien ça ?`;
       status.textContent = 'Dites « oui » pour valider, ou « non » pour corriger.';
       voice.speak(phrase).then(() => {
         if (closed || !voice.supported) return;
@@ -503,13 +763,29 @@ function openVoice() {
       if (!parsed || parsed.missing.length) return;
       stop();
       const ben = parsed.beneficiaryId ? getBeneficiary(parsed.beneficiaryId) : ensureBeneficiary(parsed.beneficiaryName, parsed.beneficiaryType);
+      if (parsed.promise) {
+        store.update((s) => s.pledges.push({
+          id: uid(), beneficiaryId: ben.id, beneficiaryName: ben.name, beneficiaryType: ben.type,
+          date: parsed.date, amount: parsed.amount, motif: parsed.remark, paidDonationId: null, createdAt: Date.now(),
+        }), { silent: true });
+        ui.donTab = 'todo';
+        await closeSheet();
+        go('dons');
+        voice.speak('Promesse enregistrée.');
+        return toast(`Promesse de ${money(parsed.amount)} enregistrée`);
+      }
       const don = { ...toDonation(), id: uid(), beneficiaryId: ben.id, beneficiaryName: ben.name, beneficiaryType: ben.type, attachments: [], createdAt: Date.now() };
       store.update((s) => s.donations.push(don));
       await closeSheet();
       voice.speak('C’est enregistré.');
       toast(`Don de ${money(don.amount)} enregistré`);
     };
-    const fix = () => { stop(); voice.stopSpeaking(); openDonationForm(toDonation(), { title: 'Corriger le don dicté' }); };
+    const fix = () => {
+      stop();
+      voice.stopSpeaking();
+      if (parsed.promise) openPledgeForm(toDonation());
+      else openDonationForm(toDonation(), { title: 'Corriger le don dicté' });
+    };
 
     mic.onclick = start;
     root.addEventListener('click', (e) => {
@@ -532,7 +808,8 @@ views.synthese = () => {
   const s = stats(ui.year);
   const st = S().settings;
   const max = s.byBeneficiary[0]?.amount || 1;
-  const progress = s.due ? Math.min(100, (s.total / s.due) * 100) : 0;
+  const progress = s.due ? Math.min(100, (s.maaserGiven / s.due) * 100) : 0;
+  const promised = openPledgeTotal();
   return `<section class="page">
     <div class="list-head"><h2 class="title">Synthèse</h2>${yearPicker()}</div>
     <div class="hero">
@@ -554,15 +831,17 @@ views.synthese = () => {
           <span><i class="dot wait"></i>En attente de reçu&nbsp;: <b>${money(s.refundPending)}</b> <small>(sur ${money(s.pending)})</small></span>
         </div>
       </div>
+      ${promised ? `<div class="tile wide" data-act="goto-todo"><span class="tile-label">Promis, pas encore versé</span>
+        <span class="tile-value">${money(promised)}</span><span class="tile-sub">${openPledges().length} promesse${openPledges().length > 1 ? 's' : ''} · voir « À donner »</span></div>` : ''}
     </div>
 
     <h3 class="section-title">Maasser ${ui.year}</h3>
     <div class="card maaser-card" data-act="goto" data-view="maaser">
       ${s.income ? `
         <p class="maaser-sentence">Sur ${ui.year}, vous avez reçu <b>${money(s.income)}</b>. Vous devez donner <b>${money(s.due)}</b> de maasser (${st.maaserRate}&nbsp;%).
-        À date, vous avez donné <b>${money(s.total)}</b>, soit <b>${pct(s.pct)}</b> au lieu de ${st.maaserRate}&nbsp;%.</p>
+        À date, vous avez donné <b>${money(s.maaserGiven)}</b> de maasser, soit <b>${pct(s.pct)}</b> au lieu de ${st.maaserRate}&nbsp;%.${s.excluded ? ` <small class="muted">(${money(s.excluded)} de dons exclus du maasser)</small>` : ''}</p>
         <div class="bar"><span style="width:${progress}%"></span></div>
-        <div class="maaser-foot">${s.remaining > 0 ? `Il vous reste <b>${money(s.remaining)}</b> à distribuer` : `<b>Maasser accompli</b> · ${money(s.total - s.due)} au-delà`}</div>`
+        <div class="maaser-foot">${s.remaining > 0 ? `Il vous reste <b>${money(s.remaining)}</b> à distribuer${promised ? `, dont <b>${money(Math.min(promised, s.remaining))}</b> déjà promis` : ''}` : `<b>Maasser accompli</b> · ${money(s.maaserGiven - s.due)} au-delà`}</div>`
       : `<p class="muted">Aucun revenu saisi pour ${ui.year}. Ajoutez vos revenus dans l’onglet Maasser pour suivre vos ${st.maaserRate}&nbsp;%.</p>`}
     </div>
 
@@ -649,6 +928,7 @@ views.donner = () => {
   const year = new Date().getFullYear();
   const s = stats(year);
   const given = new Map(s.byBeneficiary.map((x) => [x.id, x.amount]));
+  const promised = new Map(pledgeGroups().map((g) => [g.id, g.total]));
   const list = [...S().beneficiaries].sort((a, b) =>
     (a.type === b.type ? 0 : a.type === 'association' ? -1 : 1) || usageCount(b.id) - usageCount(a.id) || a.name.localeCompare(b.name, 'fr'));
   return `<section class="page">
@@ -663,7 +943,7 @@ views.donner = () => {
         <div class="partner-head">
           <span class="avatar" style="--h:${hue(b.name)}">${esc(initial(b.name))}</span>
           <div class="partner-id"><div class="partner-name">${esc(b.name)}</div>
-            <div class="partner-sub">${b.type === 'person' ? 'Personne' : 'Association'}${given.get(b.id) ? ` · ${money(given.get(b.id))} en ${year}` : ''}</div></div>
+            <div class="partner-sub">${b.type === 'person' ? 'Personne' : 'Association'}${given.get(b.id) ? ` · ${money(given.get(b.id))} en ${year}` : ''}${promised.get(b.id) ? ` · <span class="late-txt">${money(promised.get(b.id))} promis</span>` : ''}</div></div>
           <button class="icon-btn sm" data-act="edit-benef" data-id="${b.id}" aria-label="Modifier">${ICON.edit}</button>
         </div>
         ${ms.length ? `<div class="methods">${ms.map(([k, ic, label]) => `<button class="method" data-act="method" data-m="${k}" data-id="${b.id}">${ic}<span>${label}</span></button>`).join('')}</div>`
@@ -675,8 +955,10 @@ views.donner = () => {
   </section>`;
 };
 
-async function runMethod(b, m) {
+// quiet : appelé depuis une autre feuille (règlement) — pas de nouvelle feuille ni de confirmation tsédaka.
+async function runMethod(b, m, { quiet = false } = {}) {
   const copy = async (txt, msg) => { try { await navigator.clipboard.writeText(txt); toast(msg); } catch { prompt('Copiez :', txt); } };
+  if (quiet && m === 'bank') return copy(b.bank, 'Coordonnées bancaires copiées');
   const launchApp = (pkg) => { location.href = `intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${pkg};end`; };
   if (m === 'site') window.open(b.donateUrl || b.website, '_blank', 'noopener');
   else if (m === 'phone') location.href = `tel:${b.phone.replace(/[^\d+]/g, '')}`;
@@ -780,7 +1062,8 @@ views.maaser = () => {
   const s = stats(ui.year);
   const st = S().settings;
   const incomes = S().incomes.filter((i) => i.date.startsWith(String(ui.year))).sort((a, b) => b.date.localeCompare(a.date));
-  const ratio = s.due ? Math.min(1, s.total / s.due) : 0;
+  const ratio = s.due ? Math.min(1, s.maaserGiven / s.due) : 0;
+  const promised = openPledgeTotal();
   const C = 2 * Math.PI * 54;
   return `<section class="page">
     <div class="list-head"><h2 class="title">Maasser</h2>${yearPicker()}</div>
@@ -794,9 +1077,11 @@ views.maaser = () => {
     <div class="tiles">
       <div class="tile"><span class="tile-label">Revenus perçus</span><span class="tile-value">${money(s.income)}</span></div>
       <div class="tile"><span class="tile-label">Maasser dû (${st.maaserRate}&nbsp;%)</span><span class="tile-value">${money(s.due)}</span></div>
-      <div class="tile"><span class="tile-label">Donné à date</span><span class="tile-value">${money(s.total)}</span></div>
+      <div class="tile"><span class="tile-label">Donné à date</span><span class="tile-value">${money(s.maaserGiven)}</span>
+        ${s.excluded ? `<span class="tile-sub">${money(s.excluded)} exclus du maasser</span>` : ''}</div>
       <div class="tile ${s.remaining > 0 ? 'gold-tile' : 'ok-tile'}"><span class="tile-label">${s.remaining > 0 ? 'Reste à distribuer' : 'Accompli'}</span>
-        <span class="tile-value">${money(s.remaining > 0 ? s.remaining : s.total - s.due)}</span></div>
+        <span class="tile-value">${money(s.remaining > 0 ? s.remaining : s.maaserGiven - s.due)}</span>
+        ${s.remaining > 0 && promised ? `<span class="tile-sub">dont ${money(Math.min(promised, s.remaining))} déjà promis</span>` : ''}</div>
     </div>
     ${quoteCard(['maaser'])}
     <button class="btn gold big full" data-act="new-income">${ICON.plus}<span>Ajouter un revenu</span></button>
@@ -909,43 +1194,67 @@ function ago(t) {
 
 function driveSection() {
   const s = drive.status();
-  if (!s.configured) {
-    return `<p class="hint">Pour sauvegarder automatiquement vos dons et reçus dans votre Google Drive, collez l’identifiant client Google (voir le guide dans le README).</p>
-      <label class="field"><span>Identifiant client Google</span><input data-cid placeholder="xxxx.apps.googleusercontent.com" autocomplete="off"></label>
-      <button type="button" class="btn ghost full" data-d="cid">Enregistrer l’identifiant</button>`;
-  }
   if (!s.connected) {
-    return `<p class="hint">Chaque modification sera copiée dans un dossier « Tsédaka » de votre Drive (reçus inclus). L’app n’a accès qu’à ses propres fichiers.</p>
-      <div class="stack"><button type="button" class="btn gold full" data-d="connect">${ICON.cloud}<span>Connecter Google Drive</span></button>
-      <button type="button" class="btn ghost full" data-d="restore">Restaurer depuis Drive</button>
-      <button type="button" class="link" data-d="reset-cid">Changer l’identifiant client</button></div>`;
+    return `<p class="hint">Connectez-vous avec votre compte Google : vos dons et reçus seront sauvegardés automatiquement dans votre Google Drive (dossier « Tsédaka »). L’app ne voit que ses propres fichiers.</p>
+      ${googleButton()}`;
   }
   const state = s.busy ? 'Sauvegarde en cours…'
     : s.error ? `⚠ ${esc(s.error)}`
     : s.dirty ? 'Modifications pas encore sauvegardées'
     : s.lastBackup ? `✓ Sauvegardé ${ago(s.lastBackup)}` : 'Jamais sauvegardé';
-  return `<div class="drive-status ${s.dirty || s.error ? 'warn' : 'ok'}">${ICON.cloud}<span>${state}</span></div>
+  const u = s.user || {};
+  return `<div class="g-user">${u.picture ? `<img src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar" style="--h:${hue(u.email)}">${esc(initial(u.name || u.email))}</span>`}
+      <div><b>${esc(u.name || 'Compte Google')}</b><span>${esc(u.email || '')}</span></div></div>
+    <div class="drive-status ${s.dirty || s.error ? 'warn' : 'ok'}">${ICON.cloud}<span>${state}</span></div>
     <div class="stack">
       <button type="button" class="btn gold full" data-d="backup" ${s.busy ? 'disabled' : ''}>Sauvegarder maintenant</button>
       <button type="button" class="btn ghost full" data-d="restore">Restaurer depuis Drive</button>
-      <button type="button" class="link" data-d="disconnect">Déconnecter Google Drive</button>
+      ${s.folderId ? `<a class="btn ghost full" href="https://drive.google.com/drive/folders/${esc(s.folderId)}" target="_blank" rel="noopener">Ouvrir le dossier dans Drive</a>` : ''}
+      <button type="button" class="link" data-d="disconnect">Se déconnecter</button>
     </div>`;
+}
+
+const G_LOGO = '<svg class="g-logo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+const googleButton = () => `<button type="button" class="gbtn" data-act="google-signin">${G_LOGO}<span>Se connecter avec Google</span></button>`;
+
+// Petit encart sur la page Dons tant que la sauvegarde n'est pas activée.
+function driveNudge() {
+  let hidden = false;
+  try { hidden = localStorage.getItem('tsedaka.nudge') === 'off'; } catch {}
+  if (hidden || drive.status().connected || !S().donations.length) return '';
+  return `<div class="nudge">${ICON.cloud}<div><b>Ne perdez jamais vos dons</b><span>Sauvegarde automatique sur votre Google Drive.</span>${googleButton()}</div>
+    <button class="icon-btn sm" data-act="nudge-off" aria-label="Masquer">✕</button></div>`;
+}
+
+async function googleSignIn() {
+  if (!drive.clientId()) return toast('La connexion Google n’est pas encore activée pour cette application.');
+  try {
+    await drive.authorize();
+    const remote = await drive.fetchLatestBackup().catch(() => null);
+    if (remote) {
+      const n = remote.state.donations?.length || 0;
+      const when = new Date(remote.savedAt).toLocaleString('fr-FR');
+      const local = S().donations.length;
+      const msg = local
+        ? `Une sauvegarde existe déjà sur votre Drive (${when}, ${n} don${n > 1 ? 's' : ''}).\n\nOK : la récupérer sur ce téléphone (remplace ses ${local} don${local > 1 ? 's' : ''}).\nAnnuler : garder ce téléphone et mettre à jour la sauvegarde Drive.`
+        : `Une sauvegarde existe sur votre Drive (${when}, ${n} don${n > 1 ? 's' : ''}). La récupérer sur ce téléphone ?`;
+      if (confirm(msg)) {
+        await drive.applyBackup(remote);
+        return toast('Vos données ont été récupérées depuis Google Drive');
+      }
+    }
+    await drive.backup({ interactive: true });
+    toast('Connecté · vos dons sont sauvegardés sur Google Drive');
+  } catch (e) {
+    toast(e.message || 'Connexion Google impossible');
+  } finally {
+    render();
+  }
 }
 
 async function driveAction(act, box) {
   try {
-    if (act === 'cid') {
-      const v = $('[data-cid]', box).value.trim();
-      if (!/\.apps\.googleusercontent\.com$/.test(v)) return toast('Identifiant invalide (…apps.googleusercontent.com)');
-      drive.setClientId(v);
-    } else if (act === 'reset-cid') {
-      drive.setClientId('');
-    } else if (act === 'connect') {
-      await drive.authorize();
-      toast('Google Drive connecté');
-      await drive.backup({ interactive: true });
-      toast('Première sauvegarde effectuée');
-    } else if (act === 'backup') {
+    if (act === 'backup') {
       await drive.backup({ interactive: true });
       toast('Sauvegardé sur Google Drive');
     } else if (act === 'restore') {
@@ -1021,6 +1330,13 @@ function exportCSV() {
 // ---------- Actions (délégation d'événements) ----------
 const actions = {
   'close-sheet': () => closeSheet(),
+  'google-signin': () => googleSignIn(),
+  'nudge-off': () => { try { localStorage.setItem('tsedaka.nudge', 'off'); } catch {} render(); },
+  'don-tab': (el) => { ui.donTab = el.dataset.t; render(); },
+  'goto-todo': () => { ui.donTab = 'todo'; go('dons'); },
+  'add-pledge': (el) => openPledgeForm(el.dataset.name ? { beneficiaryId: el.dataset.id || null, beneficiaryName: el.dataset.name, beneficiaryType: el.dataset.type } : {}),
+  'edit-pledge': (el) => openPledgeForm({}, { pledge: S().pledges.find((p) => p.id === el.dataset.id) }),
+  settle: (el) => openSettle(el.dataset.key),
   'next-quote': (el) => {
     quoteShift[el.dataset.key] = (quoteShift[el.dataset.key] || 0) + 1;
     const tmp = document.createElement('div');
@@ -1090,6 +1406,12 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('input', (e) => {
   if (e.target.dataset.input === 'search') { ui.search = e.target.value; renderDonList(); }
+  // « 100+200+300 » : affiche le total sous le champ montant.
+  const hint = e.target.classList.contains('amount-input') && e.target.parentElement.querySelector('[data-sum]');
+  if (hint) {
+    const v = e.target.value;
+    hint.textContent = v.includes('+') && parseAmount(v) ? `= ${money(parseAmount(v))}` : '';
+  }
 });
 document.addEventListener('change', (e) => {
   if (e.target.dataset.change === 'year') { ui.year = +e.target.value; render(); }

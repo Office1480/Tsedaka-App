@@ -10,7 +10,7 @@ const NUM = {
 };
 const MULT = { cent: 100, cents: 100, mille: 1000, milles: 1000, million: 1e6, millions: 1e6 };
 const CUR = "(?:shekels?|sheqels?|shequels?|chekels?|chequels?|schekels?|shekalim|shkalim|sicles?|nis|₪|euros?|€|dollars?)";
-const STOP = "(?=\\s+(?:et|en|par|avec|via|chaque|tous|j'|je|il|on|qui|car|parce|pas|sans|aucun)\\b|\\s*[,.;!?]|$)";
+const STOP = "(?=\\s+(?:et|en|par|avec|via|chaque|tous|j'|je|il|on|qui|car|parce|pas|sans|aucun|pour)\\b|\\s*[,.;!?]|$)";
 
 // Minuscules + sans accents, en gardant exactement la même longueur que l'original
 // (permet de retrouver la casse d'origine d'un nom).
@@ -98,6 +98,11 @@ export function parseDonation(text, { beneficiaries = [], today = new Date() } =
     beneficiaryId: null, sif46: 'none', payment: null, recurring: null, remark: '', transcript: orig,
   };
   const cut = (re) => { t = t.replace(re, ' ').replace(/\s+/g, ' '); };
+
+  // ----- Promesse (don à faire plus tard) -----
+  const rePromise = /\b(?:j'ai promis|j'ai promi|je promets|je promet|promis|promesse|je dois donner|je vais donner|je donnerai|a donner)\b/;
+  r.promise = rePromise.test(t);
+  if (r.promise) cut(rePromise);
 
   // ----- Date -----
   const shift = (n) => { const d = new Date(today); d.setDate(d.getDate() + n); return iso(d); };
@@ -209,6 +214,18 @@ export function parseDonation(text, { beneficiaries = [], today = new Date() } =
       r.beneficiaryName = prettify(fromBase(r.beneficiaryName.slice(0, 60)));
       const again = beneficiaries.find((b) => norm(b.name).trim() === norm(r.beneficiaryName).trim());
       if (again) { r.beneficiaryId = again.id; r.beneficiaryName = again.name; r.beneficiaryType = again.type; }
+    }
+  }
+
+  // Motif d'une promesse : « … pour une montée à la Torah »
+  if (r.promise && !r.remark) {
+    const ben = norm(r.beneficiaryName || '').trim();
+    for (const mm of t.matchAll(new RegExp(`\\bpour (?:une |un |la |le |les |l')?(.+?)${STOP}`, 'g'))) {
+      const cap = mm[1].trim();
+      if (!cap || /^\d/.test(cap) || (ben && cap.includes(ben)) || /^(l'association|association|l'asso)\b/.test(cap)) continue;
+      const txt = fromBase(cap);
+      r.remark = txt.charAt(0).toUpperCase() + txt.slice(1);
+      break;
     }
   }
 

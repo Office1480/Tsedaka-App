@@ -6,7 +6,7 @@ import { GOOGLE_CLIENT_ID } from './config.js';
 
 const API = 'https://www.googleapis.com/drive/v3';
 const UP = 'https://www.googleapis.com/upload/drive/v3';
-const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const SCOPE = 'openid email profile https://www.googleapis.com/auth/drive.file';
 const KEY = 'tsedaka.drive';
 const FOLDER = 'Tsédaka';
 const BACKUP = 'tsedaka-sauvegarde.json';
@@ -27,22 +27,16 @@ function persist() {
 }
 
 export const onDriveChange = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
-export const clientId = () => st.clientId || GOOGLE_CLIENT_ID;
+export const clientId = () => GOOGLE_CLIENT_ID;
 const tokenValid = () => !!st.token && st.exp > Date.now() + 30000;
 
 export function status() {
-  return { configured: !!clientId(), connected: !!st.connected, lastBackup: st.lastBackup || null, dirty: !!st.dirty, busy, error, tokenValid: tokenValid() };
-}
-
-export function setClientId(id) {
-  st.clientId = id.trim();
-  persist();
-  if (st.clientId) loadGis().catch(() => {});
+  return { configured: !!clientId(), connected: !!st.connected, lastBackup: st.lastBackup || null, dirty: !!st.dirty, busy, error, tokenValid: tokenValid(), user: st.user || null, folderId: st.folderId || null };
 }
 
 export function disconnect() {
   try { if (st.token) window.google?.accounts.oauth2.revoke(st.token, () => {}); } catch {}
-  st = { clientId: st.clientId, receipts: {} };
+  st = { receipts: {} };
   persist();
 }
 
@@ -68,14 +62,19 @@ export async function authorize() {
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: clientId(),
       scope: SCOPE,
-      prompt: st.connected ? '' : 'consent',
+      prompt: st.connected ? '' : 'select_account',
+      ...(st.user?.email ? { login_hint: st.user.email } : {}),
       callback: (r) => {
         if (r.error) return reject(new Error(r.error_description || r.error));
         st.token = r.access_token;
         st.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000;
         st.connected = true;
         persist();
-        resolve();
+        fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${r.access_token}` } })
+          .then((x) => (x.ok ? x.json() : null))
+          .then((u) => { if (u) { st.user = { email: u.email, name: u.name, picture: u.picture }; persist(); } })
+          .catch(() => {})
+          .finally(resolve);
       },
       error_callback: (e) => reject(new Error(e?.type === 'popup_closed' ? 'Connexion annulée' : e?.message || 'Connexion impossible')),
     });
@@ -130,6 +129,7 @@ async function ensureFolder() {
 // ---------- Sauvegarde ----------
 async function doBackup() {
   const folder = await ensureFolder();
+  if (!st.backupId) st.backupId = (await find(`name='${BACKUP}'`))?.id || null; // reprend la sauvegarde existante
   const s = store.get();
   for (const d of s.donations) {
     for (const a of d.attachments || []) {

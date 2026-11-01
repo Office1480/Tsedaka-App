@@ -33,6 +33,7 @@ const defaults = () => ({
   version: 1,
   donations: [],
   incomes: [],
+  pledges: [],
   beneficiaries: [{ id: 'pauvre', name: 'Pauvre', type: 'person' }],
   tzedaka: { amount: 0, since: null, log: [] },
   settings: { taxRate: 33, maaserRate: 10 },
@@ -43,7 +44,7 @@ function migrate(s) {
   const out = { ...d, ...(s || {}) };
   out.settings = { ...d.settings, ...(out.settings || {}) };
   out.tzedaka = { ...d.tzedaka, ...(out.tzedaka || {}) };
-  for (const k of ['donations', 'incomes', 'beneficiaries']) if (!Array.isArray(out[k])) out[k] = d[k];
+  for (const k of ['donations', 'incomes', 'beneficiaries', 'pledges']) if (!Array.isArray(out[k])) out[k] = d[k];
   for (const don of out.donations) if (!Array.isArray(don.attachments)) don.attachments = [];
   return out;
 }
@@ -126,7 +127,7 @@ export function yearsAvailable() {
 export function stats(year) {
   const ys = String(year);
   const today = todayISO();
-  let total = 0, received = 0, pending = 0, count = 0;
+  let total = 0, received = 0, pending = 0, count = 0, excluded = 0;
   const by = new Map();
   for (const d of state.donations) {
     const occ = occurrences(d, today).filter((x) => x.startsWith(ys));
@@ -134,6 +135,8 @@ export function stats(year) {
     const amt = d.amount * occ.length;
     total += amt;
     count += occ.length;
+    // Part du don qui ne vient pas du maasser (argent avancé pour quelqu'un, etc.)
+    if (d.maaserExcl?.amount) excluded += Math.min(d.amount, d.maaserExcl.amount) * occ.length;
     if (d.sif46 === 'received') received += amt;
     else if (d.sif46 === 'pending') pending += amt;
     const b = d.beneficiaryId && getBeneficiary(d.beneficiaryId);
@@ -147,17 +150,38 @@ export function stats(year) {
   const rate = state.settings.taxRate / 100;
   const income = state.incomes.filter((i) => i.date.startsWith(ys)).reduce((s, i) => s + i.amount, 0);
   const due = (income * state.settings.maaserRate) / 100;
+  const maaserGiven = total - excluded;
   return {
-    total, count, received, pending, withSif,
+    total, count, received, pending, withSif, excluded, maaserGiven,
     without: total - withSif,
     refund: withSif * rate,
     refundReceived: received * rate,
     refundPending: pending * rate,
     byBeneficiary: [...by.values()].sort((a, b) => b.amount - a.amount),
     income, due,
-    pct: income ? (total / income) * 100 : 0,
-    remaining: Math.max(0, due - total),
+    pct: income ? (maaserGiven / income) * 100 : 0,
+    remaining: Math.max(0, due - maaserGiven),
   };
+}
+
+// ---------- Promesses (dons à faire) ----------
+export const openPledges = () => state.pledges.filter((p) => !p.paidDonationId);
+export const openPledgeTotal = () => openPledges().reduce((s, p) => s + p.amount, 0);
+
+// Regroupe les promesses ouvertes par bénéficiaire, la plus urgente d'abord.
+export function pledgeGroups() {
+  const by = new Map();
+  for (const p of openPledges()) {
+    const key = p.beneficiaryId || normName(p.beneficiaryName);
+    const b = p.beneficiaryId && getBeneficiary(p.beneficiaryId);
+    const g = by.get(key) || { key, id: p.beneficiaryId, name: b ? b.name : p.beneficiaryName, type: b ? b.type : p.beneficiaryType, items: [], total: 0 };
+    g.items.push(p);
+    g.total += p.amount;
+    by.set(key, g);
+  }
+  const groups = [...by.values()];
+  for (const g of groups) g.items.sort((a, b) => a.date.localeCompare(b.date));
+  return groups.sort((a, b) => a.items[0].date.localeCompare(b.items[0].date));
 }
 
 // ---------- Tsédaka quotidienne ----------

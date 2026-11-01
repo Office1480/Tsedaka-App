@@ -65,6 +65,19 @@ test('46 shekels est un montant, pas un Sif', () => {
   assert.equal(r.sif46, 'none');
 });
 
+test('promesse avec motif', () => {
+  const r = p("j'ai promis 1000 shekels à Kupat Ha Ir le 30 janvier pour une montée à la Torah");
+  assert.equal(r.promise, true);
+  assert.equal(r.amount, 1000);
+  assert.equal(r.date, '2026-01-30');
+  assert.equal(r.beneficiaryName, 'Kupat Ha Ir');
+  assert.equal(r.remark, 'Montée à la Torah');
+});
+
+test('un don normal n’est pas une promesse', () => {
+  assert.equal(p('50 shekels à Yad Sarah').promise, false);
+});
+
 test('nombres', () => {
   assert.equal(wordsToDigits('quatre vingt dix sept'), '97');
   assert.equal(wordsToDigits('soixante et onze'), '71');

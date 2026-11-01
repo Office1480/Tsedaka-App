@@ -456,3 +456,57 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .drive-status.ok { color: var(--ok); background: var(--ok-soft); }
 .drive-status.warn { color: var(--wait); background: var(--wait-soft); }
 .icon-btn[hidden] { display: none; }
+
+/* ---------- Onglets Dons faits / À donner ---------- */
+.tabs2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-top: 16px; border-radius: 16px; background: var(--surface-2); }
+.tab2 { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; border: 0; border-radius: 12px; background: none; font-weight: 700; font-size: 14px; color: var(--muted); }
+.tab2 b { font-size: 12px; padding: 2px 8px; border-radius: 8px; background: var(--wait-soft); color: var(--wait); }
+.tab2.on { background: var(--surface); color: var(--text); box-shadow: 0 2px 8px -2px rgba(13, 18, 36, .2); }
+
+/* ---------- Promesses ---------- */
+.pledge-card { background: var(--surface); border-radius: var(--r); padding: 14px; box-shadow: var(--shadow-sm); display: grid; gap: 12px; margin-bottom: 10px; }
+.pl-total { font-size: 19px; font-weight: 800; letter-spacing: -.02em; white-space: nowrap; }
+.late-txt { color: var(--wait); font-weight: 700; }
+.pl-lines { display: grid; gap: 2px; border-radius: 14px; overflow: hidden; }
+.pl-line, .settle-line { display: grid; grid-template-columns: 62px 1fr auto; align-items: center; gap: 10px; padding: 10px 12px; border: 0; background: var(--surface-2); text-align: left; font-size: 14px; }
+.pl-date { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.pl-line.late .pl-date { color: var(--wait); }
+.pl-motif { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pl-amt { font-weight: 800; white-space: nowrap; }
+.pledge-card .form-actions { margin: 0; }
+.pl-rows { display: grid; gap: 8px; }
+.pl-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; border-radius: 16px; background: var(--surface-2); }
+.pl-row:has(.icon-btn) { grid-template-columns: 1fr 1fr auto; }
+.pl-row input { min-width: 0; min-height: 44px; padding: 10px 12px; border-radius: 12px; border: 1.5px solid transparent; background: var(--surface); outline: none; }
+.pl-row input:focus { border-color: var(--brand); }
+.pl-row [name=pmotif] { grid-column: 1 / -1; }
+.pl-row:has(.icon-btn) [name=pmotif] { grid-column: 1 / 3; }
+.pl-row .icon-btn { align-self: center; grid-row: 2; grid-column: 3; }
+.pl-amount { font-weight: 800; }
+.settle-list { display: grid; gap: 2px; border-radius: 16px; overflow: hidden; }
+.settle-line { grid-template-columns: 26px 62px 1fr auto; cursor: pointer; }
+.settle-line input { position: absolute; opacity: 0; }
+.check-ui { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--line); color: transparent; }
+.check-ui svg { width: 15px; height: 15px; stroke-width: 3; }
+.settle-line input:checked + .check-ui { background: var(--brand); color: #fff; box-shadow: none; }
+.when-seg { margin-bottom: 2px; }
+.sum-hint { font-size: 12.5px; font-weight: 800; color: var(--brand); min-height: 0; }
+.chip.excl { background: var(--wait-soft); color: var(--wait); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile[data-act] { cursor: pointer; }
+
+/* ---------- Connexion Google ---------- */
+.gbtn {
+  display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 50px; padding: 0 18px;
+  border-radius: 14px; border: 1px solid #dadce0; background: #fff; color: #1f1f1f; font: 600 15px 'Roboto', var(--font);
+  box-shadow: 0 1px 2px rgba(60, 64, 67, .15);
+}
+.gbtn:active { background: #f1f3f4; }
+.g-logo { width: 20px; height: 20px; stroke: none; }
+.g-user { display: flex; align-items: center; gap: 12px; }
+.g-user img, .g-user .avatar { width: 44px; height: 44px; border-radius: 50%; }
+.g-user div { display: grid; }
+.g-user span { font-size: 13px; color: var(--muted); }
+.nudge { display: flex; gap: 12px; align-items: flex-start; margin-top: 14px; padding: 16px; border-radius: var(--r); background: linear-gradient(135deg, var(--brand-soft), var(--surface)); box-shadow: var(--shadow-sm); }
+.nudge > svg { color: var(--brand); width: 26px; height: 26px; margin-top: 2px; }
+.nudge > div { flex: 1; display: grid; gap: 4px; }
+.nudge span { font-size: 13px; color: var(--text-2); margin-bottom: 8px; }

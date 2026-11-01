@@ -12,25 +12,31 @@ Application Android (PWA installable) pour gérer ses dons en toute simplicité,
 - **Maasser** : saisie des revenus perçus, 10 % dû (réglable), pourcentage réellement donné et reste à distribuer.
 - **Donner** : pour chaque bénéficiaire, lien de don en ligne, site, Bit, PayBox, téléphone, coordonnées bancaires — en un clic.
 - **Tsédaka quotidienne** : pièces de 1, 2, 5, 10 ₪ et billets de 20, 50, 100 ₪ qui s’ajoutent à une boîte de tsédaka. Ensuite « Verser cette tsédaka » (formulaire prérempli) ou « Donner cet argent » (choix du bénéficiaire, ouverture de son lien, puis validation). Le don est enregistré et le compteur remis à zéro.
+- **Promesses (dons à faire)** : onglet « À donner » de la page Dons. Plusieurs promesses (date prévue, montant, motif) sont regroupées dans une seule carte par bénéficiaire ; « Régler… » enregistre un seul don pour les lignes cochées, avec le détail en remarque. Dictée : « J’ai promis 1000 shekels à Kupat Ha’Ir le 30 janvier pour une montée à la Torah ».
+- **Exclure du maasser** : sur un don (ou un règlement de promesses), une part peut être exclue du maasser avec sa raison (ex. argent avancé pour quelqu’un). Elle reste comptée dans le total et le Sif 46.
+- **Montants additionnés** : le champ montant accepte « 100+200+300 ».
 - **Sauvegarde** : export / restauration JSON (reçus inclus) et export CSV des dons de l’année, dans les Réglages.
 
 Les données vivent sur le téléphone (localStorage + IndexedDB) et sont **sauvegardées automatiquement sur Google Drive** : après chaque modification, une copie complète (dons, revenus, bénéficiaires, reçus) part dans un dossier « Tsédaka » de votre Drive. Sur un nouveau téléphone : Réglages → *Restaurer depuis Drive*. L’icône nuage en haut indique l’état (vert = sauvegardé, orange = en attente : la toucher sauvegarde).
 
 L’app utilise la permission `drive.file` : elle ne voit **que les fichiers qu’elle a créés**, pas le reste de votre Drive.
 
-## Activer la sauvegarde Google Drive (une seule fois, ~5 min)
+Pour l’utilisateur : un seul bouton **« Se connecter avec Google »** (Réglages, ou l’encart sur la page Dons). Il choisit son compte, accepte, et c’est tout. Si une sauvegarde existe déjà sur son Drive (nouveau téléphone), l’app propose de la récupérer.
 
-1. Aller sur https://console.cloud.google.com/ et créer un projet (ex. « Tsedaka »).
+## Configuration développeur (une seule fois)
+
+L’app a besoin d’un identifiant client OAuth Google, créé une fois pour toutes par le développeur et inscrit dans `js/config.js` :
+
+1. https://console.cloud.google.com/ → créer un projet « Tsedaka ».
 2. *API et services → Bibliothèque* : activer **Google Drive API**.
-3. *API et services → Écran de consentement OAuth* : type **Externe**, nom « Tsédaka », votre e-mail ; dans *Utilisateurs test*, ajouter votre adresse Gmail.
-4. *API et services → Identifiants → Créer des identifiants → ID client OAuth* : type **Application Web**. Dans *Origines JavaScript autorisées*, ajouter :
-   - `http://localhost:5180` (tests sur le PC)
-   - `https://<votre-compte>.github.io` (l’app en ligne)
-5. Copier l’**ID client** (`…apps.googleusercontent.com`) et le coller dans l’app : Réglages → Sauvegarde Google Drive. (Ou le mettre dans `js/config.js` pour tous les appareils.)
-6. Toucher **Connecter Google Drive** et accepter.
+3. *Écran de consentement OAuth* : type **Externe**, nom « Tsédaka ». Champs d’application : `openid`, `email`, `profile`, `drive.file` (tous non sensibles). Passer l’app **en production** pour qu’elle soit utilisable par tous.
+4. *Identifiants → ID client OAuth → Application Web*. Origines JavaScript autorisées :
+   - `http://localhost:5180`
+   - `https://votre-machine.votre-tailnet.ts.net:8443`
+   - l’adresse publique éventuelle (ex. `https://<compte>.github.io`)
+5. Copier l’ID client (`…apps.googleusercontent.com`) dans `GOOGLE_CLIENT_ID` de `js/config.js`.
 
-Google exige HTTPS : sur le téléphone, la sauvegarde Drive (comme la dictée) fonctionne avec l’adresse GitHub Pages, pas avec l’adresse locale `http://192.168…`.
-
+Google exige HTTPS (ou localhost) : la connexion ne fonctionne pas sur une adresse `http://192.168…`.
 ## Lancer en local
 
 ```bash

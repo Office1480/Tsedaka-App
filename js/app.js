@@ -1340,6 +1340,7 @@ async function importBackup(file) {
   try {
     const data = JSON.parse(await file.text());
     if (data.app !== 'tsedaka' || !data.state) throw new Error('format');
+    if (data.mode === 'merge') return importMerge(data.state);
     if (!confirm('Remplacer les données actuelles par cette sauvegarde ?')) return;
     for (const [id, url] of Object.entries(data.files || {})) await putFile(id, await dataURLToBlob(url));
     store.replace(data.state);
@@ -1348,6 +1349,31 @@ async function importBackup(file) {
   } catch {
     toast('Fichier de sauvegarde invalide');
   }
+}
+
+// Import « fusion » : ajoute dons, revenus et bénéficiaires sans rien remplacer (déjà présents = ignorés).
+async function importMerge(src) {
+  const s = S();
+  const has = (list, id) => list.some((x) => x.id === id);
+  const benefMap = new Map();
+  for (const b of src.beneficiaries || []) {
+    const same = getBeneficiary(b.id) || findBeneficiary(b.name);
+    benefMap.set(b.id, same ? same.id : b.id);
+  }
+  const newBenefs = (src.beneficiaries || []).filter((b) => !getBeneficiary(b.id) && !findBeneficiary(b.name));
+  const dons = (src.donations || []).filter((d) => !has(s.donations, d.id))
+    .map((d) => ({ ...d, beneficiaryId: benefMap.get(d.beneficiaryId) || d.beneficiaryId }));
+  const incs = (src.incomes || []).filter((i) => !has(s.incomes, i.id));
+  if (!dons.length && !incs.length) return toast('Ces dons sont déjà dans l’app');
+  const total = dons.reduce((t, d) => t + d.amount, 0);
+  if (!confirm(`Ajouter ${dons.length} don${dons.length > 1 ? 's' : ''} (${money(total)})${incs.length ? ` et ${incs.length} revenu${incs.length > 1 ? 's' : ''}` : ''} ?\nVos données actuelles sont conservées.`)) return;
+  store.update((st) => {
+    st.beneficiaries.push(...newBenefs);
+    st.donations.push(...dons);
+    st.incomes.push(...incs);
+  });
+  await closeSheet();
+  toast(`${dons.length} dons importés`);
 }
 
 function exportCSV() {

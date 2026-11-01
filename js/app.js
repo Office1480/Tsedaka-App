@@ -1428,7 +1428,11 @@ const actions = {
   'edit-income': (el) => openIncomeForm(S().incomes.find((i) => i.id === el.dataset.id)),
 };
 
-async function copyText(text) {
+// Texte à partager : on retire les mentions privées « (hors maasser) ».
+const shareable = (text) => String(text || '').replace(/[ \t]*\((?:hors|exclu du) ma+s+e+r\)/gi, '').trim();
+
+async function copyText(raw) {
+  const text = shareable(raw);
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);

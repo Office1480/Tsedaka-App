@@ -28,6 +28,7 @@ const parseAmount = (v) => {
 const vibrate = (ms = 12) => { try { navigator.vibrate?.(ms); } catch {} };
 
 const ICON = {
+  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>',
   mic: '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>',
@@ -204,7 +205,7 @@ function pledgesHtml() {
       </div>
       <div class="pl-lines">${g.items.map((p) => `<button class="pl-line ${p.date < today ? 'late' : ''}" data-act="edit-pledge" data-id="${p.id}">
           <span class="pl-date">${esc(fmtDate(p.date, { day: 'numeric', month: 'short' }))}</span>
-          <span class="pl-motif">${esc(p.motif || '—')}</span>
+          <span class="pl-motif">${esc(p.motif || '—')}${exclTag(p)}</span>
           <span class="pl-amt">${money(p.amount)}</span></button>`).join('')}</div>
       <div class="form-actions">
         <button class="btn ghost sm" data-act="edit-pledge" data-id="${g.items[0].id}" data-add="1">${ICON.plus}<span>Ajouter</span></button>
@@ -220,8 +221,10 @@ function pledgeRow(p = {}, removable = true) {
     <input type="text" inputmode="decimal" name="pamount" value="${p.amount ?? ''}" placeholder="Montant ₪" class="pl-amount" aria-label="Montant">
     <input type="text" name="pmotif" value="${esc(p.motif || '')}" placeholder="Motif : pauvre, montée…" list="motifs" aria-label="Motif">
     ${removable ? `<button type="button" class="icon-btn sm" data-rmrow aria-label="Retirer la ligne">${ICON.trash}</button>` : ''}
+    <label class="pl-excl"><input type="checkbox" name="pexcl" ${p.noMaaser ? 'checked' : ''}><span class="toggle-ui"></span><span>Hors maasser</span></label>
   </div>`;
 }
+const exclTag = (p) => (p.noMaaser ? '<span class="tag-excl">hors maasser</span>' : '');
 
 // Sélecteur de bénéficiaire partagé (type + liste + création).
 function benefPicker(init) {
@@ -309,7 +312,7 @@ function openPledgeForm(init = {}, { pledge = null, addRow = false } = {}) {
         const motif = r.querySelector('[name=pmotif]').value.trim();
         if (!amount && !motif) continue;
         if (!(amount > 0)) { r.querySelector('[name=pamount]').focus(); return toast('Indiquez le montant de chaque ligne'); }
-        lines.push({ id: r.dataset.pid || null, date: r.querySelector('[name=pdate]').value || todayISO(), amount, motif });
+        lines.push({ id: r.dataset.pid || null, date: r.querySelector('[name=pdate]').value || todayISO(), amount, motif, noMaaser: r.querySelector('[name=pexcl]').checked });
       }
       if (!lines.length) {
         if (!pledge) return toast('Ajoutez au moins une promesse');
@@ -351,7 +354,7 @@ function openSettle(key, preselect = null) {
           <input type="checkbox" name="pid" value="${p.id}" data-amount="${p.amount}" ${!preselect || preselect.includes(p.id) ? 'checked' : ''}>
           <span class="check-ui">${ICON.check}</span>
           <span class="pl-date">${esc(fmtDate(p.date, { day: 'numeric', month: 'short' }))}</span>
-          <span class="pl-motif">${esc(p.motif || '—')}</span>
+          <span class="pl-motif">${esc(p.motif || '—')}${exclTag(p)}</span>
           <span class="pl-amt">${money(p.amount)}</span></label>`).join('')}</div>
       <div class="grid2">
         <label class="field"><span>Date du versement</span><input type="date" name="date" value="${todayISO()}"></label>
@@ -364,9 +367,22 @@ function openSettle(key, preselect = null) {
     </form>`, (root) => {
     const f = $('#settle-form', root);
     bindExcl(f);
-    const upd = () => {
-      const t = $$('[name=pid]:checked', f).reduce((s, i) => s + +i.dataset.amount, 0);
+    // Les lignes « hors maasser » cochées pré-remplissent l'exclusion (tant qu'on ne l'a pas modifiée à la main).
+    let manualExcl = false;
+    f.addEventListener('input', (e) => { if (/^excl/.test(e.target.name)) manualExcl = true; });
+    const upd = (e) => {
+      if (e?.target.name === 'exclOn') manualExcl = true;
+      const ids = $$('[name=pid]:checked', f).map((i) => i.value);
+      const chosen = g.items.filter((p) => ids.includes(p.id));
+      const t = chosen.reduce((s, p) => s + p.amount, 0);
       $('[data-label]', f).textContent = `Enregistrer le don de ${money(t)}`;
+      if (manualExcl) return;
+      const ex = chosen.filter((p) => p.noMaaser);
+      const exAmt = ex.reduce((s, p) => s + p.amount, 0);
+      f.elements.exclOn.checked = exAmt > 0;
+      $('.excl-box', f).classList.toggle('hidden', !exAmt);
+      f.elements.exclAmount.value = exAmt || '';
+      f.elements.exclReason.value = ex.map((p) => p.motif || fmtDate(p.date, { day: 'numeric', month: 'short' })).join(', ');
     };
     upd();
     f.addEventListener('change', upd);
@@ -378,11 +394,11 @@ function openSettle(key, preselect = null) {
       if (!chosen.length) return toast('Cochez au moins une promesse');
       const amount = chosen.reduce((s, p) => s + p.amount, 0);
       const date = f.elements.date.value || todayISO();
-      const detail = chosen.map((p) => `${fmtDate(p.date, { day: 'numeric', month: 'short' })} : ${money(p.amount)}${p.motif ? ' ' + p.motif : ''}`).join(' · ');
+      const detail = chosen.map((p) => `• ${fmtDate(p.date, { day: 'numeric', month: 'short' })} : ${money(p.amount)}${p.motif ? ' — ' + p.motif : ''}${p.noMaaser ? ' (hors maasser)' : ''}`).join('\n');
       const don = {
         id: uid(), date, amount, beneficiaryId: g.id, beneficiaryName: g.name, beneficiaryType: g.type,
         sif46: f.elements.sif46.value, payment: f.elements.payment.value, recurring: null,
-        remark: chosen.length > 1 ? `Promesses — ${detail}` : (chosen[0].motif || `Promesse du ${fmtDate(chosen[0].date)}`),
+        remark: chosen.length > 1 ? `Promesses réglées (${money(amount)}) :\n${detail}` : (chosen[0].motif || `Promesse du ${fmtDate(chosen[0].date)}`),
         maaserExcl: readExcl(f, amount),
         attachments: [], source: 'pledge', pledgeIds: ids, createdAt: Date.now(),
       };
@@ -449,7 +465,8 @@ function renderDonList() {
         <span class="don-meta">${esc(fmtDate(d.recurring ? sort : d.date, { day: 'numeric', month: 'short' }))} · ${esc(PAYMENTS[d.payment] || '—')}</span>
         ${rec}
         ${d.maaserExcl?.amount ? `<span class="chip excl" title="${esc(d.maaserExcl.reason)}">Hors maasser −${money(d.maaserExcl.amount)}${d.maaserExcl.reason ? ' · ' + esc(d.maaserExcl.reason) : ''}</span>` : ''}
-        ${d.remark ? `<span class="don-remark">${esc(d.remark)}</span>` : ''}
+        ${d.remark ? `<span class="don-remark-row"><span class="don-remark">${esc(d.remark)}</span>
+          <button class="copy-btn" data-act="copy-remark" data-id="${d.id}" aria-label="Copier la remarque" title="Copier">${ICON.copy}</button></span>` : ''}
       </span>
       <span class="don-side">
         <span class="don-amount">${money(d.amount)}${d.recurring ? '<small>/' + (d.recurring.freq === 'yearly' ? 'an' : 'mois') + '</small>' : ''}</span>
@@ -532,7 +549,7 @@ function openDonationForm(init = {}, { onSaved, title } = {}) {
         <p class="hint">La date ci-dessus est celle du premier versement. Chaque échéance passée est comptée automatiquement.</p>
       </div>
       ${maaserExclFields(d.maaserExcl)}
-      <label class="field"><span>Remarque</span><textarea name="remark" rows="2" placeholder="Nom de la personne, détail : 100 pauvre + 200 montée…">${esc(d.remark)}</textarea></label>
+      <div class="field"><span class="field-head">Remarque<button type="button" class="copy-btn" data-copy-remark aria-label="Copier la remarque" title="Copier">${ICON.copy}<span>Copier</span></button></span><textarea name="remark" rows="${Math.min(8, Math.max(2, String(d.remark || '').split('\n').length))}" placeholder="Nom de la personne, détail : 100 pauvre + 200 montée…">${esc(d.remark)}</textarea></div>
       <div class="field"><span>Reçu / justificatif</span>
         <div class="att-actions">
           <label class="btn ghost sm">${ICON.file}<span>Charger un fichier</span><input type="file" accept="image/*,application/pdf" multiple hidden data-att="file"></label>
@@ -1080,7 +1097,7 @@ views.maaser = () => {
   const st = S().settings;
   const incomes = S().incomes.filter((i) => i.date.startsWith(String(ui.year))).sort((a, b) => b.date.localeCompare(a.date));
   const ratio = s.due ? Math.min(1, s.maaserGiven / s.due) : 0;
-  const promised = openPledgeTotal();
+  const promised = openPledges().filter((p) => !p.noMaaser).reduce((t, p) => t + p.amount, 0);
   const C = 2 * Math.PI * 54;
   return `<section class="page">
     <div class="list-head"><h2 class="title">Maasser</h2>${yearPicker()}</div>
@@ -1373,6 +1390,7 @@ const actions = {
   'new-don': () => openDonationForm(),
   voice: () => openVoice(),
   'edit-don': (el) => openDonationForm({ id: el.dataset.id }),
+  'copy-remark': (el) => copyText(S().donations.find((d) => d.id === el.dataset.id)?.remark),
   'cycle-sif': (el) => {
     const next = { none: 'pending', pending: 'received', received: 'none' };
     let label = '';
@@ -1410,7 +1428,23 @@ const actions = {
   'edit-income': (el) => openIncomeForm(S().incomes.find((i) => i.id === el.dataset.id)),
 };
 
+async function copyText(text) {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const t = Object.assign(document.createElement('textarea'), { value: text });
+    document.body.append(t);
+    t.select();
+    document.execCommand('copy');
+    t.remove();
+  }
+  toast('Remarque copiée');
+}
+
 document.addEventListener('click', (e) => {
+  const cp = e.target.closest('[data-copy-remark]');
+  if (cp) return copyText(cp.closest('form').elements.remark.value.trim());
   const tab = e.target.closest('.tab');
   if (tab) return go(tab.dataset.view);
   const el = e.target.closest('[data-act]');

@@ -207,7 +207,7 @@ function pledgesHtml() {
           <span class="pl-motif">${esc(p.motif || '—')}</span>
           <span class="pl-amt">${money(p.amount)}</span></button>`).join('')}</div>
       <div class="form-actions">
-        <button class="btn ghost sm" data-act="add-pledge" data-id="${g.id || ''}" data-name="${esc(g.name)}" data-type="${g.type}">${ICON.plus}<span>Ajouter</span></button>
+        <button class="btn ghost sm" data-act="edit-pledge" data-id="${g.items[0].id}" data-add="1">${ICON.plus}<span>Ajouter</span></button>
         <button class="btn gold sm grow" data-act="settle" data-key="${esc(g.key)}">${ICON.check}<span>Régler…</span></button>
       </div>
     </div>`;
@@ -215,7 +215,7 @@ function pledgesHtml() {
 }
 
 function pledgeRow(p = {}, removable = true) {
-  return `<div class="pl-row" data-row>
+  return `<div class="pl-row" data-row${p.id ? ` data-pid="${p.id}"` : ''}>
     <input type="date" name="pdate" value="${p.date || todayISO()}" aria-label="Date prévue">
     <input type="text" inputmode="decimal" name="pamount" value="${p.amount ?? ''}" placeholder="Montant ₪" class="pl-amount" aria-label="Montant">
     <input type="text" name="pmotif" value="${esc(p.motif || '')}" placeholder="Motif : pauvre, montée…" list="motifs" aria-label="Motif">
@@ -254,29 +254,37 @@ function readBenef(f) {
   return b || null;
 }
 
-function openPledgeForm(init = {}, { pledge = null } = {}) {
+// Avec `pledge` : ouvre tout le groupe de ce bénéficiaire (lignes modifiables, ajout, retrait).
+function openPledgeForm(init = {}, { pledge = null, addRow = false } = {}) {
+  const key = pledge && (pledge.beneficiaryId || normName(pledge.beneficiaryName));
+  const group = pledge ? (pledgeGroups().find((g) => g.key === key)?.items || [pledge]) : [];
   const base = pledge || init;
+  const startTotal = pledge ? group.reduce((s, p) => s + p.amount, 0) : parseAmount(init.amount) || 0;
   openSheet(`<form class="form" id="pl-form" novalidate>
-      <h3 class="sheet-title">${pledge ? 'Modifier la promesse' : 'Promesse de don'}</h3>
-      <p class="hint">${pledge ? 'Don promis, pas encore versé.' : 'Ce que vous avez promis de donner. Ajoutez autant de lignes que nécessaire : elles seront regroupées sous ce bénéficiaire.'}</p>
+      <h3 class="sheet-title">${pledge ? 'Promesses en cours' : 'Promesse de don'}</h3>
+      <p class="hint">${pledge ? 'Modifiez, ajoutez ou retirez des lignes. Rien n’est encore versé.' : 'Ce que vous avez promis de donner. Ajoutez autant de lignes que nécessaire : elles seront regroupées sous ce bénéficiaire.'}</p>
       ${benefPicker(base)}
-      <div class="field"><span>${pledge ? 'Date prévue · montant · motif' : 'Promesses (date prévue · montant · motif)'}</span>
-        <div class="pl-rows" data-rows>${pledge ? pledgeRow(pledge, false) : pledgeRow({ date: init.date, amount: init.amount, motif: init.remark }, false)}</div>
-        ${pledge ? '' : `<button type="button" class="btn ghost sm" data-addrow>${ICON.plus}<span>Ajouter une ligne</span></button>`}
+      <div class="field"><span>Promesses (date prévue · montant · motif)</span>
+        <div class="pl-rows" data-rows>${pledge ? group.map((p) => pledgeRow(p, true)).join('') : pledgeRow({ date: init.date, amount: init.amount, motif: init.remark }, false)}</div>
+        <button type="button" class="btn ghost sm" data-addrow>${ICON.plus}<span>Ajouter une ligne</span></button>
       </div>
       <datalist id="motifs">${MOTIFS.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
-      <div class="maaser-preview">Total promis&nbsp;: <b data-total>${money(parseAmount(base.amount) || 0)}</b></div>
+      <div class="maaser-preview">Total promis&nbsp;: <b data-total>${money(startTotal)}</b></div>
       <div class="form-actions">
-        ${pledge ? `<button type="button" class="btn danger-ghost" data-del>${ICON.trash}<span>Supprimer</span></button>` : ''}
+        ${pledge ? `<button type="button" class="btn danger-ghost" data-del>${ICON.trash}<span>Tout supprimer</span></button>` : ''}
         <button type="submit" class="btn gold grow">${ICON.check}<span>Enregistrer</span></button>
       </div>
-      ${pledge ? `<button type="button" class="btn blue full" data-pay>${ICON.wallet}<span>Régler cette promesse</span></button>` : ''}
+      ${pledge ? `<button type="button" class="btn blue full" data-pay>${ICON.wallet}<span>Régler…</span></button>` : ''}
     </form>`, (root) => {
     const f = $('#pl-form', root);
     const rows = $('[data-rows]', f);
     bindBenefPicker(f);
     const sum = () => { $('[data-total]', f).textContent = money($$('[name=pamount]', rows).reduce((s, i) => s + (parseAmount(i.value) || 0), 0)); };
     f.addEventListener('input', sum);
+    if (addRow) {
+      rows.insertAdjacentHTML('beforeend', pledgeRow({ date: todayISO() }));
+      requestAnimationFrame(() => $$('[name=pamount]', rows).at(-1).focus());
+    }
     f.addEventListener('click', async (e) => {
       if (e.target.closest('[data-addrow]')) {
         const last = $$('[data-row]', rows).at(-1);
@@ -285,12 +293,13 @@ function openPledgeForm(init = {}, { pledge = null } = {}) {
       }
       const rm = e.target.closest('[data-rmrow]');
       if (rm) { rm.closest('[data-row]').remove(); sum(); }
-      if (e.target.closest('[data-del]') && confirm('Supprimer cette promesse ?')) {
-        store.update((s) => { s.pledges = s.pledges.filter((p) => p.id !== pledge.id); });
+      if (e.target.closest('[data-del]') && confirm(group.length > 1 ? `Supprimer ces ${group.length} promesses ?` : 'Supprimer cette promesse ?')) {
+        const ids = new Set(group.map((p) => p.id));
+        store.update((s) => { s.pledges = s.pledges.filter((p) => !ids.has(p.id)); });
         await closeSheet();
-        toast('Promesse supprimée');
+        toast(group.length > 1 ? 'Promesses supprimées' : 'Promesse supprimée');
       }
-      if (e.target.closest('[data-pay]')) openSettle(pledge.beneficiaryId || normName(pledge.beneficiaryName), [pledge.id]);
+      if (e.target.closest('[data-pay]')) openSettle(key, [pledge.id]);
     });
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -300,24 +309,32 @@ function openPledgeForm(init = {}, { pledge = null } = {}) {
         const motif = r.querySelector('[name=pmotif]').value.trim();
         if (!amount && !motif) continue;
         if (!(amount > 0)) { r.querySelector('[name=pamount]').focus(); return toast('Indiquez le montant de chaque ligne'); }
-        lines.push({ date: r.querySelector('[name=pdate]').value || todayISO(), amount, motif });
+        lines.push({ id: r.dataset.pid || null, date: r.querySelector('[name=pdate]').value || todayISO(), amount, motif });
       }
-      if (!lines.length) return toast('Ajoutez au moins une promesse');
-      const ben = readBenef(f);
-      if (!ben) return;
-      const who = { beneficiaryId: ben.id, beneficiaryName: ben.name, beneficiaryType: ben.type };
+      if (!lines.length) {
+        if (!pledge) return toast('Ajoutez au moins une promesse');
+        if (!confirm('Plus aucune ligne : supprimer ces promesses ?')) return;
+      }
+      const ben = lines.length ? readBenef(f) : null;
+      if (lines.length && !ben) return;
+      const who = ben ? { beneficiaryId: ben.id, beneficiaryName: ben.name, beneficiaryType: ben.type } : {};
+      const added = lines.filter((l) => !l.id).length;
       store.update((s) => {
-        if (pledge) {
-          const i = s.pledges.findIndex((p) => p.id === pledge.id);
-          s.pledges[i] = { ...pledge, ...who, ...lines[0] };
-        } else {
-          for (const l of lines) s.pledges.push({ id: uid(), ...who, ...l, paidDonationId: null, createdAt: Date.now() });
+        const kept = new Set(lines.map((l) => l.id).filter(Boolean));
+        const gone = new Set(group.map((p) => p.id).filter((id) => !kept.has(id)));
+        s.pledges = s.pledges.filter((p) => !gone.has(p.id));
+        for (const { id, ...l } of lines) {
+          const i = id ? s.pledges.findIndex((p) => p.id === id) : -1;
+          if (i >= 0) s.pledges[i] = { ...s.pledges[i], ...who, ...l };
+          else s.pledges.push({ id: uid(), ...who, ...l, paidDonationId: null, createdAt: Date.now() });
         }
       }, { silent: true });
       ui.donTab = 'todo';
       await closeSheet();
       go('dons');
-      toast(pledge ? 'Promesse modifiée' : `${lines.length > 1 ? lines.length + ' promesses enregistrées' : 'Promesse enregistrée'} pour ${ben.name}`);
+      toast(!lines.length ? 'Promesses supprimées'
+        : pledge ? (added ? `${added} ligne${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''}` : 'Promesses modifiées')
+        : `${lines.length > 1 ? lines.length + ' promesses enregistrées' : 'Promesse enregistrée'} pour ${ben.name}`);
     });
   });
 }
@@ -1335,7 +1352,7 @@ const actions = {
   'don-tab': (el) => { ui.donTab = el.dataset.t; render(); },
   'goto-todo': () => { ui.donTab = 'todo'; go('dons'); },
   'add-pledge': (el) => openPledgeForm(el.dataset.name ? { beneficiaryId: el.dataset.id || null, beneficiaryName: el.dataset.name, beneficiaryType: el.dataset.type } : {}),
-  'edit-pledge': (el) => openPledgeForm({}, { pledge: S().pledges.find((p) => p.id === el.dataset.id) }),
+  'edit-pledge': (el) => openPledgeForm({}, { pledge: S().pledges.find((p) => p.id === el.dataset.id), addRow: !!el.dataset.add }),
   settle: (el) => openSettle(el.dataset.key),
   'next-quote': (el) => {
     quoteShift[el.dataset.key] = (quoteShift[el.dataset.key] || 0) + 1;
